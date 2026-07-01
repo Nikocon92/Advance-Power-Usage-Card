@@ -621,24 +621,64 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       ),
     };
 
+    this._entityIdsCache = [];
+    this._entitySignature = "";
+    this._pendingEntityRefresh = false;
+    this._channelOpenStates = [];
+    this._stopsOpen = true;
+    this._draggingChannelIndex = -1;
+
     this._handleInput = this._handleInput.bind(this);
     this._handleClick = this._handleClick.bind(this);
+    this._handleToggle = this._handleToggle.bind(this);
+    this._handleDragStart = this._handleDragStart.bind(this);
+    this._handleDragOver = this._handleDragOver.bind(this);
+    this._handleDrop = this._handleDrop.bind(this);
+    this._handleDragEnd = this._handleDragEnd.bind(this);
+    this._handleFocusOut = this._handleFocusOut.bind(this);
   }
 
   set hass(hass) {
     this._hass = hass;
+    const signature = this._entityStateSignature();
+    if (signature === this._entitySignature) {
+      return;
+    }
+
+    this._entitySignature = signature;
+    this._entityIdsCache = this._collectEntityIds();
+
+    if (this._isEditing()) {
+      this._pendingEntityRefresh = true;
+      return;
+    }
+
     this._render();
   }
 
   connectedCallback() {
+    this._entityIdsCache = this._collectEntityIds();
+    this._entitySignature = this._entityStateSignature();
     this._render();
     this.shadowRoot.addEventListener("change", this._handleInput);
     this.shadowRoot.addEventListener("click", this._handleClick);
+    this.shadowRoot.addEventListener("toggle", this._handleToggle);
+    this.shadowRoot.addEventListener("dragstart", this._handleDragStart);
+    this.shadowRoot.addEventListener("dragover", this._handleDragOver);
+    this.shadowRoot.addEventListener("drop", this._handleDrop);
+    this.shadowRoot.addEventListener("dragend", this._handleDragEnd);
+    this.shadowRoot.addEventListener("focusout", this._handleFocusOut);
   }
 
   disconnectedCallback() {
     this.shadowRoot.removeEventListener("change", this._handleInput);
     this.shadowRoot.removeEventListener("click", this._handleClick);
+    this.shadowRoot.removeEventListener("toggle", this._handleToggle);
+    this.shadowRoot.removeEventListener("dragstart", this._handleDragStart);
+    this.shadowRoot.removeEventListener("dragover", this._handleDragOver);
+    this.shadowRoot.removeEventListener("drop", this._handleDrop);
+    this.shadowRoot.removeEventListener("dragend", this._handleDragEnd);
+    this.shadowRoot.removeEventListener("focusout", this._handleFocusOut);
   }
 
   setConfig(config) {
@@ -650,6 +690,35 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       bar_color_stops: normalizeColorStops(config?.bar_color_stops),
     };
 
+    this._channelOpenStates = this._config.channels.map((_, index) =>
+      this._channelOpenStates[index] ?? true,
+    );
+
+    this._render();
+  }
+
+  _collectEntityIds() {
+    if (!this._hass || !this._hass.states) return [];
+    return Object.keys(this._hass.states).sort((a, b) => a.localeCompare(b));
+  }
+
+  _entityStateSignature() {
+    const ids = this._collectEntityIds();
+    const first = ids[0] || "";
+    const last = ids[ids.length - 1] || "";
+    return `${ids.length}:${first}:${last}`;
+  }
+
+  _isEditing() {
+    const active = this.shadowRoot?.activeElement;
+    if (!active) return false;
+    return active instanceof HTMLInputElement || active instanceof HTMLSelectElement || active instanceof HTMLTextAreaElement;
+  }
+
+  _handleFocusOut() {
+    if (!this._pendingEntityRefresh) return;
+    if (this._isEditing()) return;
+    this._pendingEntityRefresh = false;
     this._render();
   }
 
@@ -672,14 +741,9 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     }
   }
 
-  _entityIds() {
-    if (!this._hass || !this._hass.states) return [];
-    return Object.keys(this._hass.states).sort((a, b) => a.localeCompare(b));
-  }
-
   _entityOptions(selectedValue) {
     const selected = this._inputValue(selectedValue);
-    const ids = this._entityIds();
+    const ids = this._entityIdsCache;
 
     let options = '<option value="">(none)</option>';
     if (selected && !ids.includes(selected)) {
@@ -799,6 +863,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         name: `Channel ${this._config.channels.length + 1}`,
         power_entity: "",
       });
+      this._channelOpenStates.push(true);
       this._render();
       this._emitChanged();
       return;
@@ -811,6 +876,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       }
 
       this._config.channels.splice(index, 1);
+      this._channelOpenStates.splice(index, 1);
       this._render();
       this._emitChanged();
       return;
@@ -848,8 +914,92 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     }
   }
 
+  _handleToggle(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLDetailsElement)) return;
+
+    const scope = target.dataset.scope;
+    if (scope === "stops") {
+      this._stopsOpen = target.open;
+      return;
+    }
+
+    if (scope === "channel") {
+      const index = Number.parseInt(target.dataset.index || "-1", 10);
+      if (Number.isInteger(index) && index >= 0) {
+        this._channelOpenStates[index] = target.open;
+      }
+    }
+  }
+
+  _handleDragStart(event) {
+    const row = event.target instanceof HTMLElement ? event.target.closest("[data-draggable-channel]") : null;
+    if (!(row instanceof HTMLElement)) return;
+
+    if (event.target instanceof HTMLElement && event.target.closest("input,select,button,label")) {
+      event.preventDefault();
+      return;
+    }
+
+    const index = Number.parseInt(row.dataset.index || "-1", 10);
+    if (!Number.isInteger(index) || index < 0) return;
+
+    this._draggingChannelIndex = index;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", String(index));
+    }
+    row.classList.add("dragging");
+  }
+
+  _handleDragOver(event) {
+    const row = event.target instanceof HTMLElement ? event.target.closest("[data-draggable-channel]") : null;
+    if (!(row instanceof HTMLElement)) return;
+    if (this._draggingChannelIndex < 0) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "move";
+    }
+  }
+
+  _handleDrop(event) {
+    const row = event.target instanceof HTMLElement ? event.target.closest("[data-draggable-channel]") : null;
+    if (!(row instanceof HTMLElement)) return;
+    if (this._draggingChannelIndex < 0) return;
+
+    event.preventDefault();
+    const from = this._draggingChannelIndex;
+    const to = Number.parseInt(row.dataset.index || "-1", 10);
+    if (!Number.isInteger(to) || to < 0 || to >= this._config.channels.length || to === from) {
+      return;
+    }
+
+    const [movedChannel] = this._config.channels.splice(from, 1);
+    this._config.channels.splice(to, 0, movedChannel);
+
+    const [movedOpen] = this._channelOpenStates.splice(from, 1);
+    this._channelOpenStates.splice(to, 0, movedOpen);
+
+    this._render();
+    this._emitChanged();
+  }
+
+  _handleDragEnd() {
+    this._draggingChannelIndex = -1;
+    const draggingNodes = this.shadowRoot.querySelectorAll(".dragging");
+    draggingNodes.forEach((node) => node.classList.remove("dragging"));
+  }
+
   _inputValue(value) {
     return value == null ? "" : String(value);
+  }
+
+  _channelTitle(channel, index) {
+    const named = this._inputValue(channel?.name).trim();
+    if (named) return named;
+    const entity = this._inputValue(channel?.power_entity).trim();
+    if (entity) return entity;
+    return `Channel ${index + 1}`;
   }
 
   _render() {
@@ -874,35 +1024,43 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
 
     const channelRows = config.channels
       .map(
-        (channel, index) => `
-          <div class="channel-row">
-            <div class="row-head">
-              <strong>Channel ${index + 1}</strong>
-              <button type="button" data-action="remove-channel" data-index="${index}">Remove</button>
-            </div>
-            <div class="grid channel-grid">
-              <label>Name
-                <input data-scope="channel" data-index="${index}" data-field="name" value="${htmlEscape(this._inputValue(channel.name))}" />
-              </label>
-              <label>Power Entity
-                ${this._entitySelect("channel", "power_entity", channel.power_entity, index)}
-              </label>
-              <label>Max Power (W)
-                <input type="number" step="any" data-scope="channel" data-index="${index}" data-field="max_power" value="${htmlEscape(this._inputValue(channel.max_power))}" />
-              </label>
-              <label>Daily Cost Entity
-                ${this._entitySelect("channel", "daily_cost_entity", channel.daily_cost_entity, index)}
-              </label>
-              <label>Rate Entity (optional)
-                ${this._entitySelect("channel", "rate_entity", channel.rate_entity, index)}
-              </label>
-            </div>
-          </div>
-        `,
+        (channel, index) => {
+          const title = this._channelTitle(channel, index);
+          const openAttr = this._channelOpenStates[index] === false ? "" : "open";
+          return `
+            <details class="channel-row" data-scope="channel" data-index="${index}" data-draggable-channel draggable="true" ${openAttr}>
+              <summary class="row-head">
+                <span class="channel-title">${htmlEscape(title)}</span>
+                <span class="row-actions">
+                  <span class="drag-hint">Drag</span>
+                  <button type="button" data-action="remove-channel" data-index="${index}">Remove</button>
+                </span>
+              </summary>
+              <div class="grid channel-grid">
+                <label>Name
+                  <input data-scope="channel" data-index="${index}" data-field="name" value="${htmlEscape(this._inputValue(channel.name))}" />
+                </label>
+                <label>Power Entity
+                  ${this._entitySelect("channel", "power_entity", channel.power_entity, index)}
+                </label>
+                <label>Max Power (W)
+                  <input type="number" step="any" data-scope="channel" data-index="${index}" data-field="max_power" value="${htmlEscape(this._inputValue(channel.max_power))}" />
+                </label>
+                <label>Daily Cost Entity
+                  ${this._entitySelect("channel", "daily_cost_entity", channel.daily_cost_entity, index)}
+                </label>
+                <label>Rate Entity (optional)
+                  ${this._entitySelect("channel", "rate_entity", channel.rate_entity, index)}
+                </label>
+              </div>
+            </details>
+          `;
+        },
       )
       .join("");
 
     const gradientPreview = gradientFromStops(config.bar_color_stops);
+    const stopsOpenAttr = this._stopsOpen ? "open" : "";
 
     this.shadowRoot.innerHTML = `
       <div class="editor">
@@ -949,15 +1107,17 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           Auto-calculate daily cost from history when daily_cost_entity is not set
         </label>
 
-        <div class="section-head">
-          <h3>Bar Colors</h3>
-          <button type="button" data-action="add-stop" ${config.bar_color_stops.length >= 5 ? "disabled" : ""}>Add Stop</button>
-        </div>
-        <p class="help">Up to 5 stops. Position is constrained to 10% increments.</p>
-        <div class="preview" style="background: ${gradientPreview};"></div>
-        <div class="stops">
-          ${stopRows}
-        </div>
+        <details data-scope="stops" ${stopsOpenAttr}>
+          <summary class="section-head">
+            <h3>Bar Colors</h3>
+            <button type="button" data-action="add-stop" ${config.bar_color_stops.length >= 5 ? "disabled" : ""}>Add Stop</button>
+          </summary>
+          <p class="help">Up to 5 stops. Position is constrained to 10% increments.</p>
+          <div class="preview" style="background: ${gradientPreview};"></div>
+          <div class="stops">
+            ${stopRows}
+          </div>
+        </details>
 
         <div class="channels-header">
           <h3>Channels</h3>
@@ -1013,12 +1173,47 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           width: auto;
         }
 
+        details {
+          border: 1px solid var(--divider-color, #5f5f5f);
+          border-radius: 10px;
+          padding: 8px 10px;
+        }
+
+        summary {
+          cursor: pointer;
+          list-style: none;
+        }
+
+        summary::-webkit-details-marker {
+          display: none;
+        }
+
         .section-head,
-        .channels-header {
+        .channels-header,
+        .row-head {
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 8px;
+        }
+
+        .channel-title {
+          font-weight: 600;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          min-width: 0;
+        }
+
+        .row-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .drag-hint {
+          font-size: 12px;
+          opacity: 0.8;
         }
 
         h3 {
@@ -1027,7 +1222,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         }
 
         .help {
-          margin: -4px 0 0;
+          margin: 8px 0;
           font-size: 12px;
           opacity: 0.8;
         }
@@ -1056,6 +1251,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         .channels {
           display: grid;
           gap: 10px;
+          margin-top: 8px;
         }
 
         .stop-row {
@@ -1069,21 +1265,15 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         }
 
         .channel-row {
-          border: 1px solid var(--divider-color, #5f5f5f);
-          border-radius: 10px;
-          padding: 10px;
-          display: grid;
-          gap: 8px;
+          transition: opacity 0.15s ease;
         }
 
-        .row-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 8px;
+        .channel-row.dragging {
+          opacity: 0.5;
         }
 
         .channel-grid {
+          margin-top: 8px;
           grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         }
 
