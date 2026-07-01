@@ -3,11 +3,13 @@
 A Home Assistant Lovelace custom card that displays:
 
 - Total live consumption and cost rate
-- Total cost for today (optional entity)
+- Total cost for today (optional entity, or sum of calculated channel daily costs)
 - A scalable list of per-device channels with gradient bars and live arrow position
-- Instantaneous cost per hour and optional daily cost per channel
+- Instantaneous cost per hour and daily cost per channel
+- Built-in visual editor and YAML code editor support
 
 The channel list is dynamic, so the card can grow beyond 11 rows.
+The layout scales text and bar sizing to fit the available card width.
 
 ## HACS Installation
 
@@ -33,11 +35,14 @@ max_power: 6000
 total_max_power: 6000
 total_cost_entity: sensor.house_cost_today
 decimal_places: 2
+auto_calculate_daily_cost: true
+history_update_interval_sec: 300
 channels:
   - name: Washing Machine
     power_entity: sensor.washing_machine_power
     max_power: 2500
-    daily_cost_entity: sensor.washing_machine_cost_today
+    # daily_cost_entity optional; if omitted, card calculates daily cost from history
+    # daily_cost_entity: sensor.washing_machine_cost_today
   - name: Tumble Dryer
     power_entity: sensor.tumble_dryer_power
     max_power: 3000
@@ -60,14 +65,26 @@ channels:
 | `total_max_power` | No | Max power for top summary bar |
 | `total_cost_entity` | No | Entity for total cost since midnight |
 | `decimal_places` | No | Cost formatting precision |
+| `auto_calculate_daily_cost` | No | If `true`, computes channel daily cost from power history when `daily_cost_entity` is missing |
+| `history_update_interval_sec` | No | How often to refresh history-based daily costs (default `300`) |
 
 Channel object keys:
 
 - `name` (optional)
 - `power_entity` (recommended)
 - `max_power` (optional)
-- `daily_cost_entity` (optional)
+- `daily_cost_entity` (optional; if omitted and auto-calculate is enabled, daily cost is calculated from history)
 - `rate_entity` (optional, per-channel override)
+
+## Visual Editor
+
+This card includes a Lovelace visual editor (`getConfigElement`) so you can configure:
+
+- Global entities and formatting
+- History-based daily-cost settings
+- Channels (add/remove/edit rows)
+
+You can still switch to YAML mode at any time.
 
 ## Development
 
@@ -80,8 +97,9 @@ This bundles `src/advance-power-usage-card.js` into `advance-power-usage-card.js
 
 ## Notes
 
-- `total_cost_entity` and `daily_cost_entity` are not calculated from history; provide sensor entities for those totals.
+- If `daily_cost_entity` is omitted for a channel and `auto_calculate_daily_cost` is enabled, the card estimates daily cost from that channel power history since local midnight.
 - If no `total_power_entity` is set, the card uses the sum of channel power entities.
+- If `total_cost_entity` is not set, the card shows the sum of per-channel daily costs.
 
 ## License
 
