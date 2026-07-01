@@ -629,6 +629,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     this._draggingChannelIndex = -1;
     this._dropTargetIndex = -1;
     this._dropPosition = "after";
+    this._dragJustFinished = false;
 
     this._handleInput = this._handleInput.bind(this);
     this._handleClick = this._handleClick.bind(this);
@@ -743,31 +744,10 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     }
   }
 
-  _entityOptions(selectedValue) {
-    const selected = this._inputValue(selectedValue);
-    const ids = this._entityIdsCache;
-
-    let options = '<option value="">(none)</option>';
-    if (selected && !ids.includes(selected)) {
-      options += `<option value="${htmlEscape(selected)}" selected>${htmlEscape(selected)} (custom)</option>`;
-    }
-
-    options += ids
-      .map((id) => {
-        const selectedAttr = id === selected ? " selected" : "";
-        return `<option value="${htmlEscape(id)}"${selectedAttr}>${htmlEscape(id)}</option>`;
-      })
-      .join("");
-
-    return options;
-  }
-
-  _entitySelect(scope, field, value, index) {
+  _entityInput(scope, field, value, index) {
     const indexAttr = index == null ? "" : ` data-index=\"${index}\"`;
     return `
-      <select data-scope="${scope}" data-field="${field}"${indexAttr}>
-        ${this._entityOptions(value)}
-      </select>
+      <input type="text" data-scope="${scope}" data-field="${field}"${indexAttr} value="${htmlEscape(this._inputValue(value))}" />
     `;
   }
 
@@ -920,6 +900,23 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     const target = event.target;
     if (!(target instanceof HTMLDetailsElement)) return;
 
+    // Dragging should not change fold state; restore previous state immediately.
+    if (this._draggingChannelIndex >= 0 || this._dragJustFinished) {
+      const scope = target.dataset.scope;
+      if (scope === "stops") {
+        target.open = this._stopsOpen;
+        return;
+      }
+
+      if (scope === "channel") {
+        const index = Number.parseInt(target.dataset.index || "-1", 10);
+        if (Number.isInteger(index) && index >= 0) {
+          target.open = this._channelOpenStates[index] !== false;
+        }
+        return;
+      }
+    }
+
     const scope = target.dataset.scope;
     if (scope === "stops") {
       this._stopsOpen = target.open;
@@ -935,13 +932,9 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
   }
 
   _handleDragStart(event) {
-    const row = event.target instanceof HTMLElement ? event.target.closest("[data-draggable-channel]") : null;
+    const handle = event.target instanceof HTMLElement ? event.target.closest("[data-drag-handle]") : null;
+    const row = handle instanceof HTMLElement ? handle.closest("[data-draggable-channel]") : null;
     if (!(row instanceof HTMLElement)) return;
-
-    if (event.target instanceof HTMLElement && event.target.closest("input,select,button,label")) {
-      event.preventDefault();
-      return;
-    }
 
     const index = Number.parseInt(row.dataset.index || "-1", 10);
     if (!Number.isInteger(index) || index < 0) return;
@@ -1010,8 +1003,12 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
   }
 
   _handleDragEnd() {
+    this._dragJustFinished = true;
     this._draggingChannelIndex = -1;
     this._clearDropIndicators();
+    setTimeout(() => {
+      this._dragJustFinished = false;
+    }, 0);
   }
 
   _clearDropIndicators() {
@@ -1080,11 +1077,11 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           const title = this._channelTitle(channel, index);
           const openAttr = this._channelOpenStates[index] === false ? "" : "open";
           return `
-            <details class="channel-row" data-scope="channel" data-index="${index}" data-draggable-channel draggable="true" ${openAttr}>
+            <details class="channel-row" data-scope="channel" data-index="${index}" data-draggable-channel ${openAttr}>
               <summary class="row-head">
                 <span class="channel-title">${htmlEscape(title)}</span>
                 <span class="row-actions">
-                  <span class="drag-handle" aria-hidden="true">
+                  <span class="drag-handle" data-drag-handle draggable="true" title="Drag to reorder" aria-hidden="true">
                     <span></span><span></span><span></span>
                   </span>
                   <button type="button" data-action="remove-channel" data-index="${index}">Remove</button>
@@ -1095,16 +1092,16 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
                   <input data-scope="channel" data-index="${index}" data-field="name" value="${htmlEscape(this._inputValue(channel.name))}" />
                 </label>
                 <label>Power Entity
-                  ${this._entitySelect("channel", "power_entity", channel.power_entity, index)}
+                  ${this._entityInput("channel", "power_entity", channel.power_entity, index)}
                 </label>
                 <label>Max Power (W)
                   <input type="number" step="any" data-scope="channel" data-index="${index}" data-field="max_power" value="${htmlEscape(this._inputValue(channel.max_power))}" />
                 </label>
                 <label>Daily Cost Entity
-                  ${this._entitySelect("channel", "daily_cost_entity", channel.daily_cost_entity, index)}
+                  ${this._entityInput("channel", "daily_cost_entity", channel.daily_cost_entity, index)}
                 </label>
                 <label>Rate Entity (optional)
-                  ${this._entitySelect("channel", "rate_entity", channel.rate_entity, index)}
+                  ${this._entityInput("channel", "rate_entity", channel.rate_entity, index)}
                 </label>
               </div>
             </details>
@@ -1123,13 +1120,13 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
             <input data-scope="root" data-field="title" value="${htmlEscape(this._inputValue(config.title))}" />
           </label>
           <label>Total Power Entity
-            ${this._entitySelect("root", "total_power_entity", config.total_power_entity)}
+            ${this._entityInput("root", "total_power_entity", config.total_power_entity)}
           </label>
           <label>Total Cost Entity
-            ${this._entitySelect("root", "total_cost_entity", config.total_cost_entity)}
+            ${this._entityInput("root", "total_cost_entity", config.total_cost_entity)}
           </label>
           <label>Rate Entity
-            ${this._entitySelect("root", "rate_entity", config.rate_entity)}
+            ${this._entityInput("root", "rate_entity", config.rate_entity)}
           </label>
           <label>Rate Unit Label
             <input data-scope="root" data-field="rate_unit_label" value="${htmlEscape(this._inputValue(config.rate_unit_label))}" />
@@ -1289,6 +1286,11 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           align-items: center;
           justify-items: stretch;
           opacity: 0.85;
+          cursor: grab;
+        }
+
+        .drag-handle:active {
+          cursor: grabbing;
         }
 
         .drag-handle > span {
