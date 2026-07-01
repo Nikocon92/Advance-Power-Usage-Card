@@ -627,6 +627,8 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     this._channelOpenStates = [];
     this._stopsOpen = true;
     this._draggingChannelIndex = -1;
+    this._dropTargetIndex = -1;
+    this._dropPosition = "after";
 
     this._handleInput = this._handleInput.bind(this);
     this._handleClick = this._handleClick.bind(this);
@@ -960,6 +962,15 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = "move";
     }
+
+    const rect = row.getBoundingClientRect();
+    const before = event.clientY < rect.top + rect.height / 2;
+    const targetIndex = Number.parseInt(row.dataset.index || "-1", 10);
+    if (!Number.isInteger(targetIndex) || targetIndex < 0) return;
+
+    this._dropTargetIndex = targetIndex;
+    this._dropPosition = before ? "before" : "after";
+    this._applyDropIndicatorClasses();
   }
 
   _handleDrop(event) {
@@ -969,8 +980,22 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
 
     event.preventDefault();
     const from = this._draggingChannelIndex;
-    const to = Number.parseInt(row.dataset.index || "-1", 10);
-    if (!Number.isInteger(to) || to < 0 || to >= this._config.channels.length || to === from) {
+    const baseIndex =
+      this._dropTargetIndex >= 0
+        ? this._dropTargetIndex
+        : Number.parseInt(row.dataset.index || "-1", 10);
+    if (!Number.isInteger(baseIndex) || baseIndex < 0 || baseIndex >= this._config.channels.length) {
+      return;
+    }
+
+    let to = this._dropPosition === "before" ? baseIndex : baseIndex + 1;
+    if (to > from) {
+      to -= 1;
+    }
+    if (to < 0) to = 0;
+    if (to > this._config.channels.length - 1) to = this._config.channels.length - 1;
+    if (to === from) {
+      this._clearDropIndicators();
       return;
     }
 
@@ -986,8 +1011,35 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
 
   _handleDragEnd() {
     this._draggingChannelIndex = -1;
-    const draggingNodes = this.shadowRoot.querySelectorAll(".dragging");
-    draggingNodes.forEach((node) => node.classList.remove("dragging"));
+    this._clearDropIndicators();
+  }
+
+  _clearDropIndicators() {
+    this._dropTargetIndex = -1;
+    this._dropPosition = "after";
+    const nodes = this.shadowRoot.querySelectorAll(".dragging,.drop-before,.drop-after");
+    nodes.forEach((node) => {
+      node.classList.remove("dragging");
+      node.classList.remove("drop-before");
+      node.classList.remove("drop-after");
+    });
+  }
+
+  _applyDropIndicatorClasses() {
+    const rows = this.shadowRoot.querySelectorAll("[data-draggable-channel]");
+    rows.forEach((rowNode) => {
+      if (!(rowNode instanceof HTMLElement)) return;
+
+      rowNode.classList.remove("drop-before");
+      rowNode.classList.remove("drop-after");
+
+      const rowIndex = Number.parseInt(rowNode.dataset.index || "-1", 10);
+      if (rowIndex !== this._dropTargetIndex) {
+        return;
+      }
+
+      rowNode.classList.add(this._dropPosition === "before" ? "drop-before" : "drop-after");
+    });
   }
 
   _inputValue(value) {
@@ -1028,11 +1080,13 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           const title = this._channelTitle(channel, index);
           const openAttr = this._channelOpenStates[index] === false ? "" : "open";
           return `
-            <details class="channel-row" data-scope="channel" data-index="${index}" data-draggable-channel data-index="${index}" draggable="true" ${openAttr}>
+            <details class="channel-row" data-scope="channel" data-index="${index}" data-draggable-channel draggable="true" ${openAttr}>
               <summary class="row-head">
                 <span class="channel-title">${htmlEscape(title)}</span>
                 <span class="row-actions">
-                  <span class="drag-hint">Drag</span>
+                  <span class="drag-handle" aria-hidden="true">
+                    <span></span><span></span><span></span>
+                  </span>
                   <button type="button" data-action="remove-channel" data-index="${index}">Remove</button>
                 </span>
               </summary>
@@ -1182,6 +1236,23 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         summary {
           cursor: pointer;
           list-style: none;
+          position: relative;
+          padding-left: 18px;
+        }
+
+        summary::before {
+          content: "▸";
+          position: absolute;
+          left: 0;
+          top: 50%;
+          transform: translateY(-50%);
+          font-size: 12px;
+          opacity: 0.9;
+          transition: transform 0.16s ease;
+        }
+
+        details[open] > summary::before {
+          transform: translateY(-50%) rotate(90deg);
         }
 
         summary::-webkit-details-marker {
@@ -1211,9 +1282,19 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           gap: 8px;
         }
 
-        .drag-hint {
-          font-size: 12px;
-          opacity: 0.8;
+        .drag-handle {
+          width: 14px;
+          display: inline-grid;
+          gap: 2px;
+          align-items: center;
+          justify-items: stretch;
+          opacity: 0.85;
+        }
+
+        .drag-handle > span {
+          height: 2px;
+          background: currentColor;
+          border-radius: 2px;
         }
 
         h3 {
@@ -1265,11 +1346,19 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         }
 
         .channel-row {
-          transition: opacity 0.15s ease;
+          transition: opacity 0.15s ease, box-shadow 0.15s ease;
         }
 
         .channel-row.dragging {
           opacity: 0.5;
+        }
+
+        .channel-row.drop-before {
+          box-shadow: inset 0 3px 0 0 #4da3ff;
+        }
+
+        .channel-row.drop-after {
+          box-shadow: inset 0 -3px 0 0 #4da3ff;
         }
 
         .channel-grid {
