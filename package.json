@@ -1,0 +1,14 @@
+{
+  "name": "advance-power-usage-card",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Home Assistant Lovelace card for live power/cost bars per channel",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/advance-power-usage-card.js --bundle --format=esm --target=es2020 --outfile=advance-power-usage-card.js",
+    "lint": "echo \"No lint configured\""
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.9"
+  }
+}
