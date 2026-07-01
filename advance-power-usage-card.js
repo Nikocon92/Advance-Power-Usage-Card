@@ -632,13 +632,11 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
 
   connectedCallback() {
     this._render();
-    this.shadowRoot.addEventListener("input", this._handleInput);
     this.shadowRoot.addEventListener("change", this._handleInput);
     this.shadowRoot.addEventListener("click", this._handleClick);
   }
 
   disconnectedCallback() {
-    this.shadowRoot.removeEventListener("input", this._handleInput);
     this.shadowRoot.removeEventListener("change", this._handleInput);
     this.shadowRoot.removeEventListener("click", this._handleClick);
   }
