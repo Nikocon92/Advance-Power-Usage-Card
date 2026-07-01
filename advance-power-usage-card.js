@@ -1,6 +1,14 @@
 const CARD_TAG = "advance-power-usage-card";
 const EDITOR_TAG = "advance-power-usage-card-editor";
 
+const DEFAULT_COLOR_STOPS = [
+  { position: 0, color: "#0085ff" },
+  { position: 40, color: "#00bf6f" },
+  { position: 65, color: "#ffda00" },
+  { position: 82, color: "#ff8a00" },
+  { position: 100, color: "#ff2b2b" },
+];
+
 const DEFAULTS = {
   title: "Power Usage",
   currency_symbol: "$",
@@ -11,6 +19,7 @@ const DEFAULTS = {
   rate_is_subunit: false,
   auto_calculate_daily_cost: true,
   history_update_interval_sec: 300,
+  bar_color_stops: DEFAULT_COLOR_STOPS,
 };
 
 function toNumberOrNull(value) {
@@ -44,6 +53,38 @@ function htmlEscape(value) {
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function normalizeColorStops(stops) {
+  if (!Array.isArray(stops)) {
+    return DEFAULT_COLOR_STOPS.map((s) => ({ ...s }));
+  }
+
+  const normalized = stops
+    .slice(0, 5)
+    .map((stop) => {
+      const positionRaw = toNumberOrNull(stop?.position);
+      const color = String(stop?.color || "").trim();
+      if (positionRaw == null || color === "") return null;
+
+      const snapped = Math.round(positionRaw / 10) * 10;
+      const clamped = Math.max(0, Math.min(100, snapped));
+      return { position: clamped, color };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.position - b.position);
+
+  if (normalized.length < 2) {
+    return DEFAULT_COLOR_STOPS.map((s) => ({ ...s }));
+  }
+
+  return normalized;
+}
+
+function gradientFromStops(stops) {
+  const safeStops = normalizeColorStops(stops);
+  const parts = safeStops.map((stop) => `${stop.color} ${stop.position}%`);
+  return `linear-gradient(90deg, ${parts.join(", ")})`;
 }
 
 class AdvancePowerUsageCard extends HTMLElement {
@@ -84,6 +125,7 @@ class AdvancePowerUsageCard extends HTMLElement {
       ...DEFAULTS,
       ...config,
       channels: config.channels,
+      bar_color_stops: normalizeColorStops(config.bar_color_stops),
     };
 
     this._render();
@@ -115,6 +157,7 @@ class AdvancePowerUsageCard extends HTMLElement {
       max_power: 6000,
       total_max_power: 6000,
       auto_calculate_daily_cost: true,
+      bar_color_stops: DEFAULT_COLOR_STOPS,
       channels: [
         {
           name: "Washing Machine",
@@ -123,6 +166,14 @@ class AdvancePowerUsageCard extends HTMLElement {
         },
       ],
     };
+  }
+
+  _isDarkMode() {
+    if (this._hass?.themes && typeof this._hass.themes.darkMode === "boolean") {
+      return this._hass.themes.darkMode;
+    }
+
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
   }
 
   _ensureResizeObserver() {
@@ -202,7 +253,7 @@ class AdvancePowerUsageCard extends HTMLElement {
 
     this._historyFetchInFlight = this._refreshHistoryDailyCosts(entities)
       .catch(() => {
-        // Ignore transient API failures and keep last known history values.
+        // Ignore transient API failures and keep prior values.
       })
       .finally(() => {
         this._historyFetchInFlight = null;
@@ -331,6 +382,7 @@ class AdvancePowerUsageCard extends HTMLElement {
 
     this._ensureResizeObserver();
     this._updateScale();
+    this.style.setProperty("--arrow-color", this._isDarkMode() ? "#ffffff" : "#111111");
 
     const totalPower = this._config.total_power_entity
       ? this._getStateNumber(this._config.total_power_entity, 0)
@@ -356,6 +408,7 @@ class AdvancePowerUsageCard extends HTMLElement {
 
     const decimals = this._config.decimal_places;
     const currency = this._config.currency_symbol;
+    const gradient = gradientFromStops(this._config.bar_color_stops);
 
     const rowHtml = rows
       .map(
@@ -407,6 +460,8 @@ class AdvancePowerUsageCard extends HTMLElement {
           --row-size: calc(34px * var(--apuc-scale));
           --arrow-size: calc(10px * var(--apuc-scale));
           --arrow-half: calc(var(--arrow-size) * 0.9);
+          --arrow-color: #111111;
+          --bar-gradient: ${gradient};
         }
 
         ha-card {
@@ -465,7 +520,7 @@ class AdvancePowerUsageCard extends HTMLElement {
 
         .row {
           display: grid;
-          grid-template-columns: minmax(0, 1.2fr) minmax(90px, 4fr) auto auto;
+          grid-template-columns: 25% 50% 12.5% 12.5%;
           gap: var(--space-2);
           align-items: center;
           min-width: 0;
@@ -483,6 +538,9 @@ class AdvancePowerUsageCard extends HTMLElement {
         .cost-total {
           font-size: clamp(11px, calc(15px * var(--apuc-scale)), 15px);
           white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          text-align: right;
         }
 
         .bar-wrap,
@@ -503,14 +561,7 @@ class AdvancePowerUsageCard extends HTMLElement {
           height: 100%;
           border-radius: calc(10px * var(--apuc-scale));
           border: max(2px, calc(3px * var(--apuc-scale))) solid #1a3655;
-          background: linear-gradient(
-            90deg,
-            #0085ff 0%,
-            #00bf6f 40%,
-            #ffda00 65%,
-            #ff8a00 82%,
-            #ff2b2b 100%
-          );
+          background: var(--bar-gradient);
           box-sizing: border-box;
         }
 
@@ -521,8 +572,8 @@ class AdvancePowerUsageCard extends HTMLElement {
           height: 0;
           border-left: var(--arrow-size) solid transparent;
           border-right: var(--arrow-size) solid transparent;
-          border-bottom: calc(var(--arrow-size) * 1.8) solid #111;
-          filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.6));
+          border-bottom: calc(var(--arrow-size) * 1.8) solid var(--arrow-color);
+          filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.55));
         }
 
         @media (max-width: 820px) {
@@ -549,6 +600,7 @@ class AdvancePowerUsageCard extends HTMLElement {
           .cost-hour,
           .cost-total {
             font-size: clamp(12px, calc(14px * var(--apuc-scale)), 14px);
+            text-align: left;
           }
         }
       </style>
@@ -560,13 +612,22 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this._hass = null;
     this._config = {
       ...AdvancePowerUsageCard.getStubConfig(),
       channels: [...AdvancePowerUsageCard.getStubConfig().channels],
+      bar_color_stops: normalizeColorStops(
+        AdvancePowerUsageCard.getStubConfig().bar_color_stops,
+      ),
     };
 
     this._handleInput = this._handleInput.bind(this);
     this._handleClick = this._handleClick.bind(this);
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
   }
 
   connectedCallback() {
@@ -588,7 +649,9 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       ...AdvancePowerUsageCard.getStubConfig(),
       ...config,
       channels: channels.map((channel) => ({ ...channel })),
+      bar_color_stops: normalizeColorStops(config?.bar_color_stops),
     };
+
     this._render();
   }
 
@@ -611,17 +674,64 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     }
   }
 
+  _entityIds() {
+    if (!this._hass || !this._hass.states) return [];
+    return Object.keys(this._hass.states).sort((a, b) => a.localeCompare(b));
+  }
+
+  _entityOptions(selectedValue) {
+    const selected = this._inputValue(selectedValue);
+    const ids = this._entityIds();
+
+    let options = '<option value="">(none)</option>';
+    if (selected && !ids.includes(selected)) {
+      options += `<option value="${htmlEscape(selected)}" selected>${htmlEscape(selected)} (custom)</option>`;
+    }
+
+    options += ids
+      .map((id) => {
+        const selectedAttr = id === selected ? " selected" : "";
+        return `<option value="${htmlEscape(id)}"${selectedAttr}>${htmlEscape(id)}</option>`;
+      })
+      .join("");
+
+    return options;
+  }
+
+  _entitySelect(scope, field, value, index) {
+    const indexAttr = index == null ? "" : ` data-index=\"${index}\"`;
+    return `
+      <select data-scope="${scope}" data-field="${field}"${indexAttr}>
+        ${this._entityOptions(value)}
+      </select>
+    `;
+  }
+
+  _positionOptions(selectedValue) {
+    const selected = Math.max(0, Math.min(100, Math.round((toNumberOrNull(selectedValue) || 0) / 10) * 10));
+    const values = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+    return values
+      .map((value) => {
+        const selectedAttr = value === selected ? " selected" : "";
+        return `<option value="${value}"${selectedAttr}>${value}%</option>`;
+      })
+      .join("");
+  }
+
   _handleInput(event) {
     const target = event.target;
-    if (!(target instanceof HTMLInputElement)) return;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) {
+      return;
+    }
 
     const field = target.dataset.field;
     if (!field) return;
 
     if (target.dataset.scope === "root") {
-      if (target.type === "checkbox") {
+      if (target instanceof HTMLInputElement && target.type === "checkbox") {
         this._config[field] = target.checked;
-      } else if (target.type === "number") {
+      } else if (target instanceof HTMLInputElement && target.type === "number") {
         this._numberOrDelete(this._config, field, target.value);
       } else {
         const trimmed = target.value.trim();
@@ -643,7 +753,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       }
 
       const channel = this._config.channels[index];
-      if (target.type === "number") {
+      if (target instanceof HTMLInputElement && target.type === "number") {
         this._numberOrDelete(channel, field, target.value);
       } else {
         const trimmed = target.value.trim();
@@ -654,6 +764,27 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         }
       }
 
+      this._emitChanged();
+      return;
+    }
+
+    if (target.dataset.scope === "stop") {
+      const index = Number.parseInt(target.dataset.index || "-1", 10);
+      if (!Number.isInteger(index) || index < 0 || index >= this._config.bar_color_stops.length) {
+        return;
+      }
+
+      const stop = this._config.bar_color_stops[index];
+      if (field === "position") {
+        stop.position = Math.max(0, Math.min(100, Math.round((toNumberOrNull(target.value) || 0) / 10) * 10));
+      }
+
+      if (field === "color") {
+        stop.color = target.value || stop.color;
+      }
+
+      this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
+      this._render();
       this._emitChanged();
     }
   }
@@ -684,6 +815,38 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       this._config.channels.splice(index, 1);
       this._render();
       this._emitChanged();
+      return;
+    }
+
+    if (action === "add-stop") {
+      if (this._config.bar_color_stops.length >= 5) return;
+
+      this._config.bar_color_stops.push({
+        position: 100,
+        color: "#ffffff",
+      });
+
+      this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
+      this._render();
+      this._emitChanged();
+      return;
+    }
+
+    if (action === "remove-stop") {
+      const index = Number.parseInt(target.dataset.index || "-1", 10);
+      if (
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index >= this._config.bar_color_stops.length ||
+        this._config.bar_color_stops.length <= 2
+      ) {
+        return;
+      }
+
+      this._config.bar_color_stops.splice(index, 1);
+      this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
+      this._render();
+      this._emitChanged();
     }
   }
 
@@ -693,6 +856,23 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
 
   _render() {
     const config = this._config;
+    const stopRows = config.bar_color_stops
+      .map(
+        (stop, index) => `
+          <div class="stop-row">
+            <label>Position
+              <select data-scope="stop" data-index="${index}" data-field="position">
+                ${this._positionOptions(stop.position)}
+              </select>
+            </label>
+            <label>Color
+              <input type="color" data-scope="stop" data-index="${index}" data-field="color" value="${htmlEscape(stop.color)}" />
+            </label>
+            <button type="button" data-action="remove-stop" data-index="${index}" ${config.bar_color_stops.length <= 2 ? "disabled" : ""}>Remove</button>
+          </div>
+        `,
+      )
+      .join("");
 
     const channelRows = config.channels
       .map(
@@ -707,22 +887,24 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
                 <input data-scope="channel" data-index="${index}" data-field="name" value="${htmlEscape(this._inputValue(channel.name))}" />
               </label>
               <label>Power Entity
-                <input data-scope="channel" data-index="${index}" data-field="power_entity" value="${htmlEscape(this._inputValue(channel.power_entity))}" />
+                ${this._entitySelect("channel", "power_entity", channel.power_entity, index)}
               </label>
               <label>Max Power (W)
                 <input type="number" step="any" data-scope="channel" data-index="${index}" data-field="max_power" value="${htmlEscape(this._inputValue(channel.max_power))}" />
               </label>
               <label>Daily Cost Entity
-                <input data-scope="channel" data-index="${index}" data-field="daily_cost_entity" value="${htmlEscape(this._inputValue(channel.daily_cost_entity))}" />
+                ${this._entitySelect("channel", "daily_cost_entity", channel.daily_cost_entity, index)}
               </label>
               <label>Rate Entity (optional)
-                <input data-scope="channel" data-index="${index}" data-field="rate_entity" value="${htmlEscape(this._inputValue(channel.rate_entity))}" />
+                ${this._entitySelect("channel", "rate_entity", channel.rate_entity, index)}
               </label>
             </div>
           </div>
         `,
       )
       .join("");
+
+    const gradientPreview = gradientFromStops(config.bar_color_stops);
 
     this.shadowRoot.innerHTML = `
       <div class="editor">
@@ -731,13 +913,13 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
             <input data-scope="root" data-field="title" value="${htmlEscape(this._inputValue(config.title))}" />
           </label>
           <label>Total Power Entity
-            <input data-scope="root" data-field="total_power_entity" value="${htmlEscape(this._inputValue(config.total_power_entity))}" />
+            ${this._entitySelect("root", "total_power_entity", config.total_power_entity)}
           </label>
           <label>Total Cost Entity
-            <input data-scope="root" data-field="total_cost_entity" value="${htmlEscape(this._inputValue(config.total_cost_entity))}" />
+            ${this._entitySelect("root", "total_cost_entity", config.total_cost_entity)}
           </label>
           <label>Rate Entity
-            <input data-scope="root" data-field="rate_entity" value="${htmlEscape(this._inputValue(config.rate_entity))}" />
+            ${this._entitySelect("root", "rate_entity", config.rate_entity)}
           </label>
           <label>Rate Unit Label
             <input data-scope="root" data-field="rate_unit_label" value="${htmlEscape(this._inputValue(config.rate_unit_label))}" />
@@ -768,6 +950,16 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           <input type="checkbox" data-scope="root" data-field="auto_calculate_daily_cost" ${config.auto_calculate_daily_cost !== false ? "checked" : ""} />
           Auto-calculate daily cost from history when daily_cost_entity is not set
         </label>
+
+        <div class="section-head">
+          <h3>Bar Colors</h3>
+          <button type="button" data-action="add-stop" ${config.bar_color_stops.length >= 5 ? "disabled" : ""}>Add Stop</button>
+        </div>
+        <p class="help">Up to 5 stops. Position is constrained to 10% increments.</p>
+        <div class="preview" style="background: ${gradientPreview};"></div>
+        <div class="stops">
+          ${stopRows}
+        </div>
 
         <div class="channels-header">
           <h3>Channels</h3>
@@ -802,7 +994,8 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           font-size: 13px;
         }
 
-        input {
+        input,
+        select {
           width: 100%;
           box-sizing: border-box;
           padding: 8px;
@@ -822,6 +1015,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           width: auto;
         }
 
+        .section-head,
         .channels-header {
           display: flex;
           align-items: center;
@@ -834,6 +1028,12 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           font-size: 15px;
         }
 
+        .help {
+          margin: -4px 0 0;
+          font-size: 12px;
+          opacity: 0.8;
+        }
+
         button {
           border: 1px solid var(--divider-color, #5f5f5f);
           border-radius: 8px;
@@ -843,9 +1043,31 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           cursor: pointer;
         }
 
+        button:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .preview {
+          height: 22px;
+          border-radius: 8px;
+          border: 1px solid var(--divider-color, #5f5f5f);
+        }
+
+        .stops,
         .channels {
           display: grid;
           gap: 10px;
+        }
+
+        .stop-row {
+          border: 1px solid var(--divider-color, #5f5f5f);
+          border-radius: 10px;
+          padding: 10px;
+          display: grid;
+          grid-template-columns: 1fr 1fr auto;
+          gap: 8px;
+          align-items: end;
         }
 
         .channel-row {
@@ -866,6 +1088,12 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         .channel-grid {
           grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         }
+
+        @media (max-width: 620px) {
+          .stop-row {
+            grid-template-columns: 1fr;
+          }
+        }
       </style>
     `;
   }
@@ -884,6 +1112,6 @@ window.customCards.push({
   type: CARD_TAG,
   name: "Advance Power Usage Card",
   description:
-    "Power and cost bars with responsive scaling, history daily cost, and visual editor.",
+    "Power and cost bars with responsive scaling, history daily cost, visual editor dropdowns, and configurable bar colors.",
   preview: true,
 });

@@ -48,6 +48,18 @@ channels:
     max_power: 3000
   - name: Office Desk
     power_entity: sensor.office_desk_power
+
+bar_color_stops:
+  - position: 0
+    color: "#0085ff"
+  - position: 40
+    color: "#00bf6f"
+  - position: 70
+    color: "#ffcc00"
+  - position: 90
+    color: "#ff4a00"
+  - position: 100
+    color: "#ff1a1a"
 ```
 
 ## Configuration
@@ -67,6 +79,7 @@ channels:
 | `decimal_places` | No | Cost formatting precision |
 | `auto_calculate_daily_cost` | No | If `true`, computes channel daily cost from power history when `daily_cost_entity` is missing |
 | `history_update_interval_sec` | No | How often to refresh history-based daily costs (default `300`) |
+| `bar_color_stops` | No | Up to 5 global gradient stops for bars (`position` in 10% steps, `color` as CSS color) |
 
 Channel object keys:
 
@@ -82,7 +95,10 @@ This card includes a Lovelace visual editor (`getConfigElement`) so you can conf
 
 - Global entities and formatting
 - History-based daily-cost settings
+- Global bar color stops (up to 5)
 - Channels (add/remove/edit rows)
+
+Entity fields in the visual editor use dropdown selections populated from your Home Assistant entities.
 
 You can still switch to YAML mode at any time.
 
@@ -100,6 +116,7 @@ This bundles `src/advance-power-usage-card.js` into `advance-power-usage-card.js
 - If `daily_cost_entity` is omitted for a channel and `auto_calculate_daily_cost` is enabled, the card estimates daily cost from that channel power history since local midnight.
 - If no `total_power_entity` is set, the card uses the sum of channel power entities.
 - If `total_cost_entity` is not set, the card shows the sum of per-channel daily costs.
+- Arrow color now follows theme: white in dark mode and black in light mode.
 
 ## License
 
