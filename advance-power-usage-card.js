@@ -790,6 +790,9 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       } else {
         channel[field] = value;
       }
+      if (field === "power_entity") {
+        this._syncEntityPickers();
+      }
       this._emitChanged();
     }
   }
@@ -803,9 +806,19 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       picker.includeDomains = ["sensor"];
       const value = this._entityValueForPicker(picker);
       picker.value = value;
-      const filter = this._entityFilterForField(picker.dataset.field || "");
-      picker.entityFilter = (entity) => this._entityMatchesFilter(entity, filter);
+      picker.entityFilter = (entity) => this._pickerEntityMatchesFilter(picker, entity);
     });
+  }
+  _selectedChannelPowerEntities(excludedIndex) {
+    const selected = /* @__PURE__ */ new Set();
+    this._config.channels.forEach((channel, index) => {
+      if (index === excludedIndex) return;
+      const entityId = this._inputValue(channel?.power_entity).trim();
+      if (entityId !== "") {
+        selected.add(entityId);
+      }
+    });
+    return selected;
   }
   _entityValueForPicker(picker) {
     const field = picker.dataset.field;
@@ -821,6 +834,21 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       return this._inputValue(this._config.channels[index]?.[field]).trim();
     }
     return "";
+  }
+  _pickerEntityMatchesFilter(picker, entityOrId) {
+    const field = picker.dataset.field || "";
+    const filter = this._entityFilterForField(field);
+    if (!this._entityMatchesFilter(entityOrId, filter)) {
+      return false;
+    }
+    if (picker.dataset.scope !== "channel" || field !== "power_entity") {
+      return true;
+    }
+    const index = Number.parseInt(picker.dataset.index || "-1", 10);
+    const selected = this._selectedChannelPowerEntities(index);
+    const entityId = typeof entityOrId === "string" ? entityOrId : entityOrId?.entity_id;
+    const currentValue = this._entityValueForPicker(picker);
+    return entityId === currentValue || !selected.has(entityId);
   }
   _entityMatchesFilter(entityOrId, filter) {
     if (filter === "any") return true;
