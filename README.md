@@ -36,6 +36,7 @@ total_max_power: 6000
 total_cost_entity: sensor.house_cost_today
 decimal_places: 2
 auto_calculate_daily_cost: true
+show_raw_power_overlay: true
 history_update_interval_sec: 300
 channels:
   - name: Washing Machine
@@ -78,6 +79,7 @@ bar_color_stops:
 | `total_cost_entity` | No | Entity for total cost since midnight |
 | `decimal_places` | No | Cost formatting precision |
 | `auto_calculate_daily_cost` | No | If `true`, computes channel daily cost from power history when `daily_cost_entity` is missing |
+| `show_raw_power_overlay` | No | If `true`, overlays each channel bar with its current raw power value in white text |
 | `history_update_interval_sec` | No | How often to refresh history-based daily costs (default `300`) |
 | `bar_color_stops` | No | Up to 5 global gradient stops for bars (`position` in 10% steps, `color` as CSS color) |
 

@@ -21,6 +21,7 @@ const DEFAULTS = {
   history_update_interval_sec: 300,
   bar_color_stops: DEFAULT_COLOR_STOPS,
   bar_style: "arrow",
+  show_raw_power_overlay: false,
 };
 const POWER_ENTITY_UNITS = new Set(["w", "kw", "mw", "gw"]);
 const CURRENCY_CODES = ["usd", "eur", "gbp", "aud", "cad", "nzd", "sek", "nok", "dkk", "chf"];
@@ -415,6 +416,7 @@ class AdvancePowerUsageCard extends HTMLElement {
 
     return {
       name: channel.name || channel.power_entity || "Channel",
+      power,
       ratio,
       instantCost,
       totalCost,
@@ -455,11 +457,15 @@ class AdvancePowerUsageCard extends HTMLElement {
     const gradient = gradientFromStops(this._config.bar_color_stops);
     const barStyle = this._config.bar_style || "arrow";
     const stops = this._config.bar_color_stops;
+    const showRawPowerOverlay = this._config.show_raw_power_overlay === true;
 
     const rowHtml = rows
       .map(
         (row) => {
           const fillPct = (row.ratio * 100).toFixed(2);
+          const overlayHtml = showRawPowerOverlay
+            ? `<div class="power-overlay">${this._formatNumber(row.power, 0)}${htmlEscape(this._config.power_unit)}</div>`
+            : "";
           const barInnerHtml = barStyle === "scale"
             ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, row.ratio)} ${fillPct}%, ${BAR_UNFILLED_COLOR} ${fillPct}%);"></div>`
             : `<div class="bar"></div><div class="arrow" style="left: calc(${fillPct}% - var(--arrow-half))"></div>`;
@@ -468,6 +474,7 @@ class AdvancePowerUsageCard extends HTMLElement {
             <div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>
             <div class="bar-wrap">
               ${barInnerHtml}
+              ${overlayHtml}
             </div>
             <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
             <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
@@ -627,6 +634,25 @@ class AdvancePowerUsageCard extends HTMLElement {
           border-right: var(--arrow-size) solid transparent;
           border-bottom: calc(var(--arrow-size) * 1.8) solid var(--arrow-color);
           filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.55));
+        }
+
+        .power-overlay {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 var(--space-2);
+          color: #ffffff;
+          font-size: clamp(11px, calc(15px * var(--apuc-scale)), 15px);
+          font-weight: 700;
+          line-height: 1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+          pointer-events: none;
+          z-index: 1;
         }
 
         @media (max-width: 820px) {
@@ -1363,6 +1389,11 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         <label class="checkbox">
           <input type="checkbox" data-scope="root" data-field="auto_calculate_daily_cost" ${config.auto_calculate_daily_cost !== false ? "checked" : ""} />
           Auto-calculate daily cost from history when daily_cost_entity is not set
+        </label>
+
+        <label class="checkbox">
+          <input type="checkbox" data-scope="root" data-field="show_raw_power_overlay" ${config.show_raw_power_overlay ? "checked" : ""} />
+          Show raw power text on channel bars
         </label>
 
         <details data-scope="stops" ${stopsOpenAttr}>
