@@ -528,6 +528,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
     this._dropPosition = "after";
     this._dragJustFinished = false;
     this._handleInput = this._handleInput.bind(this);
+    this._handleColorLive = this._handleColorLive.bind(this);
     this._handleClick = this._handleClick.bind(this);
     this._handleToggle = this._handleToggle.bind(this);
     this._handleDragStart = this._handleDragStart.bind(this);
@@ -556,6 +557,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
     this._entitySignature = this._entityStateSignature();
     this._render();
     this.shadowRoot.addEventListener("change", this._handleInput);
+    this.shadowRoot.addEventListener("input", this._handleColorLive);
     this.shadowRoot.addEventListener("click", this._handleClick);
     this.shadowRoot.addEventListener("toggle", this._handleToggle);
     this.shadowRoot.addEventListener("dragstart", this._handleDragStart);
@@ -567,6 +569,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
   }
   disconnectedCallback() {
     this.shadowRoot.removeEventListener("change", this._handleInput);
+    this.shadowRoot.removeEventListener("input", this._handleColorLive);
     this.shadowRoot.removeEventListener("click", this._handleClick);
     this.shadowRoot.removeEventListener("toggle", this._handleToggle);
     this.shadowRoot.removeEventListener("dragstart", this._handleDragStart);
@@ -658,6 +661,12 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       const selectedAttr = value === selected ? " selected" : "";
       return `<option value="${value}"${selectedAttr}>${value}%</option>`;
     }).join("");
+  }
+  _handleColorLive(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "color") return;
+    if (target.dataset.scope !== "stop" || target.dataset.field !== "color") return;
+    target.style.backgroundColor = target.value;
   }
   _handleInput(event) {
     const target = event.target;
@@ -987,7 +996,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
               </select>
             </label>
             <label>Color
-              <input type="color" data-scope="stop" data-index="${index}" data-field="color" value="${htmlEscape(stop.color)}" />
+              <input type="color" data-scope="stop" data-index="${index}" data-field="color" value="${htmlEscape(stop.color)}" style="background-color: ${htmlEscape(stop.color)};" />
             </label>
             <button type="button" data-action="remove-stop" data-index="${index}" ${config.bar_color_stops.length <= 2 ? "disabled" : ""}>Remove</button>
           </div>
@@ -1135,6 +1144,11 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
           border: 1px solid var(--divider-color, #5f5f5f);
           background: var(--card-background-color, #1c1c1c);
           color: var(--primary-text-color, #fff);
+        }
+
+        input[type="color"] {
+          padding: 2px;
+          cursor: pointer;
         }
 
         .checkbox {
