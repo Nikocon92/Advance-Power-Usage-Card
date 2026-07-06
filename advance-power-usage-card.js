@@ -364,7 +364,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     const rowHtml = rows.map(buildRowHtml).join("");
     let otherRowHtml = "";
     if (this._config.show_other) {
-      const channelPowerSum = this._config.channels.reduce(
+      const channelPowerSum = (this._config.channels ?? []).reduce(
         (sum, c) => sum + this._getStateNumber(c.power_entity, 0),
         0
       );
@@ -373,7 +373,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
       const otherRatio = this._clamp01(otherMax > 0 ? otherPower / otherMax : 0);
       const otherInstantCost = otherPower / 1e3 * ratePerKwh;
       const channelCostSum = rows.reduce((sum, row) => sum + row.totalCost, 0);
-      const otherDailyCost = Math.max(0, totalCost - channelCostSum);
+      const otherDailyCost = Math.max(0, (totalCost ?? 0) - channelCostSum);
       otherRowHtml = buildRowHtml({
         name: "Other",
         ratio: otherRatio,
