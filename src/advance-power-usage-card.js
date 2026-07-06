@@ -21,6 +21,7 @@ const DEFAULTS = {
   history_update_interval_sec: 300,
   bar_color_stops: DEFAULT_COLOR_STOPS,
   bar_style: "arrow",
+  show_other: false,
 };
 const POWER_ENTITY_UNITS = new Set(["w", "kw", "mw", "gw"]);
 const CURRENCY_CODES = ["usd", "eur", "gbp", "aud", "cad", "nzd", "sek", "nok", "dkk", "chf"];
@@ -184,7 +185,8 @@ class AdvancePowerUsageCard extends HTMLElement {
 
   getCardSize() {
     const channelCount = this._config?.channels?.length ?? 0;
-    return Math.max(4, channelCount + 3);
+    const otherCount = this._config?.show_other ? 1 : 0;
+    return Math.max(4, channelCount + otherCount + 3);
   }
 
   static getConfigElement() {
@@ -456,26 +458,44 @@ class AdvancePowerUsageCard extends HTMLElement {
     const barStyle = this._config.bar_style || "arrow";
     const stops = this._config.bar_color_stops;
 
-    const rowHtml = rows
-      .map(
-        (row) => {
-          const fillPct = (row.ratio * 100).toFixed(2);
-          const barInnerHtml = barStyle === "scale"
-            ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, row.ratio)} ${fillPct}%, ${BAR_UNFILLED_COLOR} ${fillPct}%);"></div>`
-            : `<div class="bar"></div><div class="arrow" style="left: calc(${fillPct}% - var(--arrow-half))"></div>`;
-          return `
-          <div class="row">
-            <div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>
-            <div class="bar-wrap">
-              ${barInnerHtml}
-            </div>
-            <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
-            <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
+    const buildRowHtml = (row) => {
+      const fillPct = (row.ratio * 100).toFixed(2);
+      const barInnerHtml = barStyle === "scale"
+        ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, row.ratio)} ${fillPct}%, ${BAR_UNFILLED_COLOR} ${fillPct}%);"></div>`
+        : `<div class="bar"></div><div class="arrow" style="left: calc(${fillPct}% - var(--arrow-half))"></div>`;
+      return `
+        <div class="row">
+          <div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>
+          <div class="bar-wrap">
+            ${barInnerHtml}
           </div>
-        `;
-        },
-      )
-      .join("");
+          <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
+          <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
+        </div>
+      `;
+    };
+
+    const rowHtml = rows.map(buildRowHtml).join("");
+
+    let otherRowHtml = "";
+    if (this._config.show_other) {
+      const channelPowerSum = this._config.channels.reduce(
+        (sum, c) => sum + this._getStateNumber(c.power_entity, 0),
+        0,
+      );
+      const otherPower = Math.max(0, totalPower - channelPowerSum);
+      const otherMax = this._config.max_power;
+      const otherRatio = this._clamp01(otherMax > 0 ? otherPower / otherMax : 0);
+      const otherInstantCost = (otherPower / 1000) * ratePerKwh;
+      const channelCostSum = rows.reduce((sum, row) => sum + row.totalCost, 0);
+      const otherDailyCost = Math.max(0, totalCost - channelCostSum);
+      otherRowHtml = buildRowHtml({
+        name: "Other",
+        ratio: otherRatio,
+        instantCost: otherInstantCost,
+        totalCost: otherDailyCost,
+      });
+    }
 
     this.shadowRoot.innerHTML = `
       <ha-card>
@@ -497,7 +517,7 @@ class AdvancePowerUsageCard extends HTMLElement {
           </div>
 
           <div class="channels">
-            ${rowHtml}
+            ${rowHtml}${otherRowHtml}
           </div>
         </div>
       </ha-card>
@@ -1363,6 +1383,11 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         <label class="checkbox">
           <input type="checkbox" data-scope="root" data-field="auto_calculate_daily_cost" ${config.auto_calculate_daily_cost !== false ? "checked" : ""} />
           Auto-calculate daily cost from history when daily_cost_entity is not set
+        </label>
+
+        <label class="checkbox">
+          <input type="checkbox" data-scope="root" data-field="show_other" ${config.show_other ? "checked" : ""} />
+          Show untracked usage as "Other" row (total minus channel sum)
         </label>
 
         <details data-scope="stops" ${stopsOpenAttr}>

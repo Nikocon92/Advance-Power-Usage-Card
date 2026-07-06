@@ -80,6 +80,7 @@ bar_color_stops:
 | `auto_calculate_daily_cost` | No | If `true`, computes channel daily cost from power history when `daily_cost_entity` is missing |
 | `history_update_interval_sec` | No | How often to refresh history-based daily costs (default `300`) |
 | `bar_color_stops` | No | Up to 5 global gradient stops for bars (`position` in 10% steps, `color` as CSS color) |
+| `show_other` | No | If `true`, shows an "Other" row at the bottom representing untracked power (total minus sum of channel power) |
 
 Channel object keys:
 
