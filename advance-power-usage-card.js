@@ -20,6 +20,9 @@ var DEFAULTS = {
   history_update_interval_sec: 300,
   bar_color_stops: DEFAULT_COLOR_STOPS
 };
+var POWER_ENTITY_UNITS = /* @__PURE__ */ new Set(["w", "kw", "mw", "gw"]);
+var CURRENCY_CODES = ["usd", "eur", "gbp", "aud", "cad", "nzd", "sek", "nok", "dkk", "chf"];
+var CURRENCY_SYMBOL_PATTERN = /[€£$¥₩₹]/;
 function toNumberOrNull(value) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -626,20 +629,27 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
   }
   _entityInput(scope, field, value, index) {
     const indexAttr = index == null ? "" : ` data-index="${index}"`;
-    const filter = this._entityFilterForField(field);
     return `
       <ha-entity-picker
         data-scope="${scope}"
-        data-field="${field}"
-        data-filter="${filter}"${indexAttr}
+        data-field="${field}"${indexAttr}
+        value="${htmlEscape(this._inputValue(value))}"
       ></ha-entity-picker>
     `;
   }
   _entityFilterForField(field) {
-    if (field === "power_entity" || field === "total_power_entity") return "power";
-    if (field === "rate_entity") return "rate_per_kwh";
-    if (field === "daily_cost_entity" || field === "total_cost_entity") return "cost";
-    return "any";
+    switch (field) {
+      case "power_entity":
+      case "total_power_entity":
+        return "power";
+      case "rate_entity":
+        return "rate_per_kwh";
+      case "daily_cost_entity":
+      case "total_cost_entity":
+        return "cost";
+      default:
+        return "any";
+    }
   }
   _positionOptions(selectedValue) {
     const selected = Math.max(0, Math.min(100, Math.round((toNumberOrNull(selectedValue) || 0) / 10) * 10));
@@ -710,7 +720,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
   }
   _handleValueChanged(event) {
     const target = event.target;
-    if (!(target instanceof HTMLElement) || target.tagName !== "HA-ENTITY-PICKER") {
+    if (!(target instanceof HTMLElement) || target.tagName.toLowerCase() !== "ha-entity-picker") {
       return;
     }
     const field = target.dataset.field;
@@ -749,7 +759,8 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       picker.includeDomains = ["sensor"];
       const value = this._entityValueForPicker(picker);
       picker.value = value;
-      picker.entityFilter = (entity) => this._entityMatchesFilter(entity, picker.dataset.filter || "any");
+      const filter = this._entityFilterForField(picker.dataset.field || "");
+      picker.entityFilter = (entity) => this._entityMatchesFilter(entity, filter);
     });
   }
   _entityValueForPicker(picker) {
@@ -774,18 +785,20 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
     const stateObj = typeof entityOrId === "string" ? this._hass?.states?.[entityOrId] : entityOrId;
     if (!stateObj) return false;
     const unit = String(stateObj.attributes?.unit_of_measurement || "").trim();
-    const unitNormalized = unit.toLowerCase().replace(/\s+/g, "");
+    const unitLower = unit.toLowerCase();
+    const unitNormalized = unitLower.replace(/\s+/g, "");
     const deviceClass = String(stateObj.attributes?.device_class || "").trim().toLowerCase();
     const stateValue = Number.parseFloat(stateObj.state);
     const isNumberState = Number.isFinite(stateValue);
     if (filter === "power") {
-      return isNumberState && (deviceClass === "power" || unitNormalized === "w" || unitNormalized === "kw" || unitNormalized === "mw");
+      return isNumberState && (deviceClass === "power" || POWER_ENTITY_UNITS.has(unitNormalized));
     }
     if (filter === "rate_per_kwh") {
       return isNumberState && unitNormalized.includes("/kwh");
     }
     if (filter === "cost") {
-      return isNumberState && (deviceClass === "monetary" || /^[€£$¥₩₹]|usd|eur|gbp|aud|cad|nzd|sek|nok|dkk|chf$/i.test(unit));
+      const hasCurrencyIndicator = CURRENCY_SYMBOL_PATTERN.test(unit) || CURRENCY_CODES.some((code) => unitLower.includes(code));
+      return isNumberState && (deviceClass === "monetary" || hasCurrencyIndicator);
     }
     return true;
   }
