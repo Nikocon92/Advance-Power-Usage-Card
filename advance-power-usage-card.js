@@ -758,6 +758,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
         stop.color = target.value || stop.color;
       }
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
+      this._syncFromDOM();
       this._render();
       this._emitChanged();
     }
@@ -846,12 +847,27 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
     }
     return true;
   }
+  _syncFromDOM() {
+    const stopsEl = this.shadowRoot?.querySelector("details[data-scope='stops']");
+    if (stopsEl instanceof HTMLDetailsElement) {
+      this._stopsOpen = stopsEl.open;
+    }
+    const channelEls = this.shadowRoot?.querySelectorAll("details[data-scope='channel']");
+    channelEls?.forEach((el) => {
+      if (!(el instanceof HTMLDetailsElement)) return;
+      const index = Number.parseInt(el.dataset.index || "-1", 10);
+      if (Number.isInteger(index) && index >= 0) {
+        this._channelOpenStates[index] = el.open;
+      }
+    });
+  }
   _handleClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const action = target.dataset.action;
     if (!action) return;
     if (action === "add-channel") {
+      this._syncFromDOM();
       this._config.channels.push({
         name: `Channel ${this._config.channels.length + 1}`,
         power_entity: ""
@@ -866,6 +882,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       if (!Number.isInteger(index) || index < 0 || index >= this._config.channels.length) {
         return;
       }
+      this._syncFromDOM();
       this._config.channels.splice(index, 1);
       this._channelOpenStates.splice(index, 1);
       this._render();
@@ -874,6 +891,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
     }
     if (action === "add-stop") {
       if (this._config.bar_color_stops.length >= 5) return;
+      this._syncFromDOM();
       this._config.bar_color_stops.push({
         position: 100,
         color: "#ffffff"
@@ -888,6 +906,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       if (!Number.isInteger(index) || index < 0 || index >= this._config.bar_color_stops.length || this._config.bar_color_stops.length <= 2) {
         return;
       }
+      this._syncFromDOM();
       this._config.bar_color_stops.splice(index, 1);
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
       this._render();

@@ -913,6 +913,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       }
 
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
+      this._syncFromDOM();
       this._render();
       this._emitChanged();
     }
@@ -1034,6 +1035,22 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     return true;
   }
 
+  _syncFromDOM() {
+    const stopsEl = this.shadowRoot?.querySelector("details[data-scope='stops']");
+    if (stopsEl instanceof HTMLDetailsElement) {
+      this._stopsOpen = stopsEl.open;
+    }
+
+    const channelEls = this.shadowRoot?.querySelectorAll("details[data-scope='channel']");
+    channelEls?.forEach((el) => {
+      if (!(el instanceof HTMLDetailsElement)) return;
+      const index = Number.parseInt(el.dataset.index || "-1", 10);
+      if (Number.isInteger(index) && index >= 0) {
+        this._channelOpenStates[index] = el.open;
+      }
+    });
+  }
+
   _handleClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
@@ -1042,6 +1059,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     if (!action) return;
 
     if (action === "add-channel") {
+      this._syncFromDOM();
       this._config.channels.push({
         name: `Channel ${this._config.channels.length + 1}`,
         power_entity: "",
@@ -1058,6 +1076,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         return;
       }
 
+      this._syncFromDOM();
       this._config.channels.splice(index, 1);
       this._channelOpenStates.splice(index, 1);
       this._render();
@@ -1068,6 +1087,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     if (action === "add-stop") {
       if (this._config.bar_color_stops.length >= 5) return;
 
+      this._syncFromDOM();
       this._config.bar_color_stops.push({
         position: 100,
         color: "#ffffff",
@@ -1090,6 +1110,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         return;
       }
 
+      this._syncFromDOM();
       this._config.bar_color_stops.splice(index, 1);
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
       this._render();
