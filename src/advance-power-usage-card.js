@@ -21,6 +21,9 @@ const DEFAULTS = {
   history_update_interval_sec: 300,
   bar_color_stops: DEFAULT_COLOR_STOPS,
 };
+const POWER_ENTITY_UNITS = new Set(["w", "kw", "mw", "gw"]);
+const CURRENCY_CODES = ["usd", "eur", "gbp", "aud", "cad", "nzd", "sek", "nok", "dkk", "chf"];
+const CURRENCY_SYMBOL_PATTERN = /[€£$¥₩₹]/;
 
 function toNumberOrNull(value) {
   const parsed = Number.parseFloat(value);
@@ -639,6 +642,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     this._handleDrop = this._handleDrop.bind(this);
     this._handleDragEnd = this._handleDragEnd.bind(this);
     this._handleFocusOut = this._handleFocusOut.bind(this);
+    this._handleValueChanged = this._handleValueChanged.bind(this);
   }
 
   set hass(hass) {
@@ -671,6 +675,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     this.shadowRoot.addEventListener("drop", this._handleDrop);
     this.shadowRoot.addEventListener("dragend", this._handleDragEnd);
     this.shadowRoot.addEventListener("focusout", this._handleFocusOut);
+    this.shadowRoot.addEventListener("value-changed", this._handleValueChanged);
   }
 
   disconnectedCallback() {
@@ -682,6 +687,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     this.shadowRoot.removeEventListener("drop", this._handleDrop);
     this.shadowRoot.removeEventListener("dragend", this._handleDragEnd);
     this.shadowRoot.removeEventListener("focusout", this._handleFocusOut);
+    this.shadowRoot.removeEventListener("value-changed", this._handleValueChanged);
   }
 
   setConfig(config) {
@@ -747,8 +753,27 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
   _entityInput(scope, field, value, index) {
     const indexAttr = index == null ? "" : ` data-index=\"${index}\"`;
     return `
-      <input type="text" data-scope="${scope}" data-field="${field}"${indexAttr} value="${htmlEscape(this._inputValue(value))}" />
+      <ha-entity-picker
+        data-scope="${scope}"
+        data-field="${field}"${indexAttr}
+        value="${htmlEscape(this._inputValue(value))}"
+      ></ha-entity-picker>
     `;
+  }
+
+  _entityFilterForField(field) {
+    switch (field) {
+      case "power_entity":
+      case "total_power_entity":
+        return "power";
+      case "rate_entity":
+        return "rate_per_kwh";
+      case "daily_cost_entity":
+      case "total_cost_entity":
+        return "cost";
+      default:
+        return "any";
+    }
   }
 
   _positionOptions(selectedValue) {
@@ -831,6 +856,122 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       this._render();
       this._emitChanged();
     }
+  }
+
+  _handleValueChanged(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target.tagName.toLowerCase() !== "ha-entity-picker") {
+      return;
+    }
+
+    const field = target.dataset.field;
+    if (!field) return;
+
+    const value = String(event.detail?.value ?? "").trim();
+
+    if (target.dataset.scope === "root") {
+      if (value === "") {
+        delete this._config[field];
+      } else {
+        this._config[field] = value;
+      }
+      this._emitChanged();
+      return;
+    }
+
+    if (target.dataset.scope === "channel") {
+      const index = Number.parseInt(target.dataset.index || "-1", 10);
+      if (!Number.isInteger(index) || index < 0 || index >= this._config.channels.length) {
+        return;
+      }
+
+      const channel = this._config.channels[index];
+      if (value === "") {
+        delete channel[field];
+      } else {
+        channel[field] = value;
+      }
+      this._emitChanged();
+    }
+  }
+
+  _syncEntityPickers() {
+    const pickers = this.shadowRoot?.querySelectorAll("ha-entity-picker");
+    if (!pickers) return;
+
+    pickers.forEach((picker) => {
+      if (!(picker instanceof HTMLElement)) return;
+      picker.hass = this._hass;
+      picker.allowCustomEntity = true;
+      picker.includeDomains = ["sensor"];
+      const value = this._entityValueForPicker(picker);
+      picker.value = value;
+      const filter = this._entityFilterForField(picker.dataset.field || "");
+      picker.entityFilter = (entity) =>
+        this._entityMatchesFilter(entity, filter);
+    });
+  }
+
+  _entityValueForPicker(picker) {
+    const field = picker.dataset.field;
+    if (!field) return "";
+
+    if (picker.dataset.scope === "root") {
+      return this._inputValue(this._config[field]).trim();
+    }
+
+    if (picker.dataset.scope === "channel") {
+      const index = Number.parseInt(picker.dataset.index || "-1", 10);
+      if (!Number.isInteger(index) || index < 0 || index >= this._config.channels.length) {
+        return "";
+      }
+      return this._inputValue(this._config.channels[index]?.[field]).trim();
+    }
+
+    return "";
+  }
+
+  _entityMatchesFilter(entityOrId, filter) {
+    if (filter === "any") return true;
+    const entityId = typeof entityOrId === "string" ? entityOrId : entityOrId?.entity_id;
+    if (!entityId?.startsWith("sensor.")) return false;
+
+    const stateObj =
+      typeof entityOrId === "string"
+        ? this._hass?.states?.[entityOrId]
+        : entityOrId;
+    if (!stateObj) return false;
+
+    const unit = String(stateObj.attributes?.unit_of_measurement || "").trim();
+    const unitLower = unit.toLowerCase();
+    const unitNormalized = unitLower.replace(/\s+/g, "");
+    const deviceClass = String(stateObj.attributes?.device_class || "").trim().toLowerCase();
+    const stateValue = Number.parseFloat(stateObj.state);
+    const isNumberState = Number.isFinite(stateValue);
+
+    if (filter === "power") {
+      return (
+        isNumberState &&
+        (deviceClass === "power" ||
+          POWER_ENTITY_UNITS.has(unitNormalized))
+      );
+    }
+
+    if (filter === "rate_per_kwh") {
+      return isNumberState && unitNormalized.includes("/kwh");
+    }
+
+    if (filter === "cost") {
+      const hasCurrencyIndicator =
+        CURRENCY_SYMBOL_PATTERN.test(unit) ||
+        CURRENCY_CODES.some((code) => unitLower.includes(code));
+      return (
+        isNumberState &&
+        (deviceClass === "monetary" || hasCurrencyIndicator)
+      );
+    }
+
+    return true;
   }
 
   _handleClick(event) {
@@ -1204,9 +1345,14 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         }
 
         input,
+        ha-entity-picker,
         select {
           width: 100%;
           box-sizing: border-box;
+        }
+
+        input,
+        select {
           padding: 8px;
           border-radius: 8px;
           border: 1px solid var(--divider-color, #5f5f5f);
@@ -1375,6 +1521,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         }
       </style>
     `;
+    this._syncEntityPickers();
   }
 }
 

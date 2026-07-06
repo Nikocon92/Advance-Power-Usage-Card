@@ -98,7 +98,7 @@ This card includes a Lovelace visual editor (`getConfigElement`) so you can conf
 - Global bar color stops (up to 5)
 - Channels (add/remove/edit rows)
 
-Entity fields in the visual editor use dropdown selections populated from your Home Assistant entities.
+Entity fields in the visual editor use the default Home Assistant entity picker, with power/cost/rate fields prefiltered where applicable.
 
 You can still switch to YAML mode at any time.
 
