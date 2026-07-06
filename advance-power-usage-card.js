@@ -1,40 +1,36 @@
-const CARD_TAG = "advance-power-usage-card";
-const EDITOR_TAG = "advance-power-usage-card-editor";
-
-const DEFAULT_COLOR_STOPS = [
+// src/advance-power-usage-card.js
+var CARD_TAG = "advance-power-usage-card";
+var EDITOR_TAG = "advance-power-usage-card-editor";
+var DEFAULT_COLOR_STOPS = [
   { position: 0, color: "#0085ff" },
   { position: 40, color: "#00bf6f" },
   { position: 65, color: "#ffda00" },
   { position: 82, color: "#ff8a00" },
-  { position: 100, color: "#ff2b2b" },
+  { position: 100, color: "#ff2b2b" }
 ];
-
-const DEFAULTS = {
+var DEFAULTS = {
   title: "Power Usage",
   currency_symbol: "$",
   rate_unit_label: "p/kWh",
   power_unit: "W",
-  max_power: 3000,
+  max_power: 3e3,
   decimal_places: 2,
   rate_is_subunit: false,
   auto_calculate_daily_cost: true,
   history_update_interval_sec: 300,
-  bar_color_stops: DEFAULT_COLOR_STOPS,
+  bar_color_stops: DEFAULT_COLOR_STOPS
 };
-
 function toNumberOrNull(value) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
-
-function localDayKey(date = new Date()) {
+function localDayKey(date = /* @__PURE__ */ new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
-
-function localMidnightIso(date = new Date()) {
+function localMidnightIso(date = /* @__PURE__ */ new Date()) {
   return new Date(
     date.getFullYear(),
     date.getMonth(),
@@ -42,111 +38,84 @@ function localMidnightIso(date = new Date()) {
     0,
     0,
     0,
-    0,
+    0
   ).toISOString();
 }
-
 function htmlEscape(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;");
 }
-
 function normalizeColorStops(stops) {
   if (!Array.isArray(stops)) {
     return DEFAULT_COLOR_STOPS.map((s) => ({ ...s }));
   }
-
-  const normalized = stops
-    .slice(0, 5)
-    .map((stop) => {
-      const positionRaw = toNumberOrNull(stop?.position);
-      const color = String(stop?.color || "").trim();
-      if (positionRaw == null || color === "") return null;
-
-      const snapped = Math.round(positionRaw / 10) * 10;
-      const clamped = Math.max(0, Math.min(100, snapped));
-      return { position: clamped, color };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.position - b.position);
-
+  const normalized = stops.slice(0, 5).map((stop) => {
+    const positionRaw = toNumberOrNull(stop?.position);
+    const color = String(stop?.color || "").trim();
+    if (positionRaw == null || color === "") return null;
+    const snapped = Math.round(positionRaw / 10) * 10;
+    const clamped = Math.max(0, Math.min(100, snapped));
+    return { position: clamped, color };
+  }).filter(Boolean).sort((a, b) => a.position - b.position);
   if (normalized.length < 2) {
     return DEFAULT_COLOR_STOPS.map((s) => ({ ...s }));
   }
-
   return normalized;
 }
-
 function gradientFromStops(stops) {
   const safeStops = normalizeColorStops(stops);
   const parts = safeStops.map((stop) => `${stop.color} ${stop.position}%`);
   return `linear-gradient(90deg, ${parts.join(", ")})`;
 }
-
-class AdvancePowerUsageCard extends HTMLElement {
+var AdvancePowerUsageCard = class extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._config = undefined;
-    this._hass = undefined;
+    this._config = void 0;
+    this._hass = void 0;
     this._historyDailyCostByEntity = {};
     this._historyFetchInFlight = null;
     this._lastHistoryFetchMs = 0;
     this._historyDayKey = "";
     this._resizeObserver = null;
   }
-
   connectedCallback() {
     this._ensureResizeObserver();
     this._updateScale();
   }
-
   disconnectedCallback() {
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
       this._resizeObserver = null;
     }
   }
-
   setConfig(config) {
     if (!config || !Array.isArray(config.channels)) {
       throw new Error("Invalid configuration: channels[] is required.");
     }
-
     if (!config.total_power_entity && config.channels.length === 0) {
       throw new Error("Provide total_power_entity or at least one channel.");
     }
-
     this._config = {
       ...DEFAULTS,
       ...config,
       channels: config.channels,
-      bar_color_stops: normalizeColorStops(config.bar_color_stops),
+      bar_color_stops: normalizeColorStops(config.bar_color_stops)
     };
-
     this._render();
     this._scheduleHistoryRefresh(true);
   }
-
   set hass(hass) {
     this._hass = hass;
     this._render();
     this._scheduleHistoryRefresh(false);
   }
-
   getCardSize() {
     const channelCount = this._config?.channels?.length ?? 0;
     return Math.max(4, channelCount + 3);
   }
-
   static getConfigElement() {
     return document.createElement(EDITOR_TAG);
   }
-
   static getStubConfig() {
     return {
       title: "Power Usage",
@@ -154,265 +123,194 @@ class AdvancePowerUsageCard extends HTMLElement {
       rate_entity: "sensor.electricity_rate",
       rate_unit_label: "p/kWh",
       currency_symbol: "$",
-      max_power: 6000,
-      total_max_power: 6000,
+      max_power: 6e3,
+      total_max_power: 6e3,
       auto_calculate_daily_cost: true,
       bar_color_stops: DEFAULT_COLOR_STOPS,
       channels: [
         {
           name: "Washing Machine",
           power_entity: "sensor.washing_machine_power",
-          max_power: 2500,
-        },
-      ],
+          max_power: 2500
+        }
+      ]
     };
   }
-
   _isDarkMode() {
     if (this._hass?.themes && typeof this._hass.themes.darkMode === "boolean") {
       return this._hass.themes.darkMode;
     }
-
     return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
   }
-
   _ensureResizeObserver() {
     if (this._resizeObserver) {
       return;
     }
-
     this._resizeObserver = new ResizeObserver(() => this._updateScale());
     this._resizeObserver.observe(this);
   }
-
   _updateScale() {
     const width = this.getBoundingClientRect().width || 760;
     const scale = Math.max(0.64, Math.min(1, width / 760));
     this.style.setProperty("--apuc-scale", scale.toFixed(3));
   }
-
   _getStateNumber(entityId, fallback = 0) {
     if (!this._hass || !entityId) return fallback;
-
     const state = this._hass.states[entityId];
     if (!state) return fallback;
-
     const parsed = toNumberOrNull(state.state);
     return parsed == null ? fallback : parsed;
   }
-
   _formatNumber(value, decimals = 2) {
-    return Number(value).toLocaleString(undefined, {
+    return Number(value).toLocaleString(void 0, {
       minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
+      maximumFractionDigits: decimals
     });
   }
-
   _clamp01(value) {
     if (value <= 0) return 0;
     if (value >= 1) return 1;
     return value;
   }
-
   _rateToCurrencyPerKwh(rate) {
     if (this._config.rate_is_subunit) {
       return rate / 100;
     }
     return rate;
   }
-
   _collectHistoryEntitiesNeedingCost() {
     if (!this._config) return [];
-
     const entities = [];
     this._config.channels.forEach((channel) => {
       if (!channel.power_entity) return;
       if (channel.daily_cost_entity) return;
       entities.push(channel.power_entity);
     });
-
     return [...new Set(entities)];
   }
-
   async _scheduleHistoryRefresh(force) {
     if (!this._hass || !this._config) return;
     if (!this._config.auto_calculate_daily_cost) return;
-
     const entities = this._collectHistoryEntitiesNeedingCost();
     if (entities.length === 0) return;
-
     const now = Date.now();
     const currentDay = localDayKey();
-    const staleMs = Number(this._config.history_update_interval_sec) * 1000;
-    const shouldRefresh =
-      force ||
-      this._historyDayKey !== currentDay ||
-      now - this._lastHistoryFetchMs > staleMs;
-
+    const staleMs = Number(this._config.history_update_interval_sec) * 1e3;
+    const shouldRefresh = force || this._historyDayKey !== currentDay || now - this._lastHistoryFetchMs > staleMs;
     if (!shouldRefresh || this._historyFetchInFlight) return;
-
-    this._historyFetchInFlight = this._refreshHistoryDailyCosts(entities)
-      .catch(() => {
-        // Ignore transient API failures and keep prior values.
-      })
-      .finally(() => {
-        this._historyFetchInFlight = null;
-      });
+    this._historyFetchInFlight = this._refreshHistoryDailyCosts(entities).catch(() => {
+    }).finally(() => {
+      this._historyFetchInFlight = null;
+    });
   }
-
   async _refreshHistoryDailyCosts(entities) {
     if (!this._hass || entities.length === 0) return;
-
     const startIso = localMidnightIso();
-    const endIso = new Date().toISOString();
+    const endIso = (/* @__PURE__ */ new Date()).toISOString();
     const filterEntityId = encodeURIComponent(entities.join(","));
-    const query =
-      `history/period/${encodeURIComponent(startIso)}` +
-      `?filter_entity_id=${filterEntityId}` +
-      `&end_time=${encodeURIComponent(endIso)}` +
-      "&minimal_response&no_attributes";
-
+    const query = `history/period/${encodeURIComponent(startIso)}?filter_entity_id=${filterEntityId}&end_time=${encodeURIComponent(endIso)}&minimal_response&no_attributes`;
     const history = await this._hass.callApi("GET", query);
     if (!Array.isArray(history)) return;
-
     const dailyByEntity = {};
     history.forEach((series, index) => {
       if (!Array.isArray(series) || series.length === 0) {
         return;
       }
-
       const fallbackEntity = entities[index];
       const firstState = series.find((entry) => entry && typeof entry === "object");
       const entityId = firstState?.entity_id || fallbackEntity;
       if (!entityId) return;
-
       const energyKwh = this._integrateSeriesKwh(series);
       const rateRaw = this._findRateForPowerEntity(entityId);
       const ratePerKwh = this._rateToCurrencyPerKwh(rateRaw);
       dailyByEntity[entityId] = energyKwh * ratePerKwh;
     });
-
     this._historyDailyCostByEntity = {
       ...this._historyDailyCostByEntity,
-      ...dailyByEntity,
+      ...dailyByEntity
     };
     this._historyDayKey = localDayKey();
     this._lastHistoryFetchMs = Date.now();
     this._render();
   }
-
   _findRateForPowerEntity(powerEntityId) {
     const channel = this._config.channels.find(
-      (item) => item.power_entity === powerEntityId,
+      (item) => item.power_entity === powerEntityId
     );
-
     if (channel?.rate_entity) {
       return this._getStateNumber(channel.rate_entity, 0);
     }
-
     return this._getStateNumber(this._config.rate_entity, 0);
   }
-
   _integrateSeriesKwh(series) {
     const now = Date.now();
     let prevPowerW = null;
     let prevTs = null;
     let wattHours = 0;
-
     for (let i = 0; i < series.length; i += 1) {
       const entry = series[i];
       if (!entry || typeof entry !== "object") continue;
-
       const value = toNumberOrNull(entry.state);
       if (value == null) continue;
-
       const tsRaw = entry.last_changed || entry.last_updated;
       const ts = tsRaw ? Date.parse(tsRaw) : NaN;
       if (!Number.isFinite(ts)) continue;
-
       if (prevPowerW != null && prevTs != null && ts > prevTs) {
-        const dtHours = (ts - prevTs) / 3600000;
+        const dtHours = (ts - prevTs) / 36e5;
         wattHours += prevPowerW * dtHours;
       }
-
       prevPowerW = value;
       prevTs = ts;
     }
-
     if (prevPowerW != null && prevTs != null && now > prevTs) {
-      const dtHours = (now - prevTs) / 3600000;
+      const dtHours = (now - prevTs) / 36e5;
       wattHours += prevPowerW * dtHours;
     }
-
-    return wattHours / 1000;
+    return wattHours / 1e3;
   }
-
   _buildRow(channel, mainRatePerKwh) {
     const power = this._getStateNumber(channel.power_entity, 0);
     const rowMax = channel.max_power ?? this._config.max_power;
     const ratio = this._clamp01(rowMax > 0 ? power / rowMax : 0);
-
-    const rowRateRaw = channel.rate_entity
-      ? this._getStateNumber(channel.rate_entity, 0)
-      : this._getStateNumber(this._config.rate_entity, 0);
-
-    const rowRate = channel.rate_entity
-      ? this._rateToCurrencyPerKwh(rowRateRaw)
-      : mainRatePerKwh;
-
-    const instantCost = (power / 1000) * rowRate;
-
+    const rowRateRaw = channel.rate_entity ? this._getStateNumber(channel.rate_entity, 0) : this._getStateNumber(this._config.rate_entity, 0);
+    const rowRate = channel.rate_entity ? this._rateToCurrencyPerKwh(rowRateRaw) : mainRatePerKwh;
+    const instantCost = power / 1e3 * rowRate;
     let totalCost = 0;
     if (channel.daily_cost_entity) {
       totalCost = this._getStateNumber(channel.daily_cost_entity, 0);
     } else if (channel.power_entity) {
       totalCost = this._historyDailyCostByEntity[channel.power_entity] ?? 0;
     }
-
     return {
       name: channel.name || channel.power_entity || "Channel",
       ratio,
       instantCost,
-      totalCost,
+      totalCost
     };
   }
-
   _render() {
     if (!this._config || !this._hass || !this.shadowRoot) return;
-
     this._ensureResizeObserver();
     this._updateScale();
     this.style.setProperty("--arrow-color", this._isDarkMode() ? "#ffffff" : "#111111");
-
-    const totalPower = this._config.total_power_entity
-      ? this._getStateNumber(this._config.total_power_entity, 0)
-      : this._config.channels.reduce(
-          (sum, c) => sum + this._getStateNumber(c.power_entity, 0),
-          0,
-        );
-
+    const totalPower = this._config.total_power_entity ? this._getStateNumber(this._config.total_power_entity, 0) : this._config.channels.reduce(
+      (sum, c) => sum + this._getStateNumber(c.power_entity, 0),
+      0
+    );
     const rateRaw = this._getStateNumber(this._config.rate_entity, 0);
     const ratePerKwh = this._rateToCurrencyPerKwh(rateRaw);
-
-    const totalInstantCost = (totalPower / 1000) * ratePerKwh;
+    const totalInstantCost = totalPower / 1e3 * ratePerKwh;
     const totalMax = this._config.total_max_power ?? this._config.max_power;
     const totalRatio = this._clamp01(totalMax > 0 ? totalPower / totalMax : 0);
-
-    const rows = this._config.channels.map((channel) =>
-      this._buildRow(channel, ratePerKwh),
+    const rows = this._config.channels.map(
+      (channel) => this._buildRow(channel, ratePerKwh)
     );
-
-    const totalCost = this._config.total_cost_entity
-      ? this._getStateNumber(this._config.total_cost_entity, 0)
-      : rows.reduce((sum, row) => sum + row.totalCost, 0);
-
+    const totalCost = this._config.total_cost_entity ? this._getStateNumber(this._config.total_cost_entity, 0) : rows.reduce((sum, row) => sum + row.totalCost, 0);
     const decimals = this._config.decimal_places;
     const currency = this._config.currency_symbol;
     const gradient = gradientFromStops(this._config.bar_color_stops);
-
-    const rowHtml = rows
-      .map(
-        (row) => `
+    const rowHtml = rows.map(
+      (row) => `
           <div class="row">
             <div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>
             <div class="bar-wrap">
@@ -422,10 +320,8 @@ class AdvancePowerUsageCard extends HTMLElement {
             <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
             <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
           </div>
-        `,
-      )
-      .join("");
-
+        `
+    ).join("");
     this.shadowRoot.innerHTML = `
       <ha-card>
         <div class="wrap">
@@ -606,9 +502,8 @@ class AdvancePowerUsageCard extends HTMLElement {
       </style>
     `;
   }
-}
-
-class AdvancePowerUsageCardEditor extends HTMLElement {
+};
+var AdvancePowerUsageCardEditor = class extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -617,10 +512,9 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       ...AdvancePowerUsageCard.getStubConfig(),
       channels: [...AdvancePowerUsageCard.getStubConfig().channels],
       bar_color_stops: normalizeColorStops(
-        AdvancePowerUsageCard.getStubConfig().bar_color_stops,
-      ),
+        AdvancePowerUsageCard.getStubConfig().bar_color_stops
+      )
     };
-
     this._entityIdsCache = [];
     this._entitySignature = "";
     this._pendingEntityRefresh = false;
@@ -630,7 +524,6 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     this._dropTargetIndex = -1;
     this._dropPosition = "after";
     this._dragJustFinished = false;
-
     this._handleInput = this._handleInput.bind(this);
     this._handleClick = this._handleClick.bind(this);
     this._handleToggle = this._handleToggle.bind(this);
@@ -640,25 +533,20 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     this._handleDragEnd = this._handleDragEnd.bind(this);
     this._handleFocusOut = this._handleFocusOut.bind(this);
   }
-
   set hass(hass) {
     this._hass = hass;
     const signature = this._entityStateSignature();
     if (signature === this._entitySignature) {
       return;
     }
-
     this._entitySignature = signature;
     this._entityIdsCache = this._collectEntityIds();
-
     if (this._isEditing()) {
       this._pendingEntityRefresh = true;
       return;
     }
-
     this._render();
   }
-
   connectedCallback() {
     this._entityIdsCache = this._collectEntityIds();
     this._entitySignature = this._entityStateSignature();
@@ -672,7 +560,6 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     this.shadowRoot.addEventListener("dragend", this._handleDragEnd);
     this.shadowRoot.addEventListener("focusout", this._handleFocusOut);
   }
-
   disconnectedCallback() {
     this.shadowRoot.removeEventListener("change", this._handleInput);
     this.shadowRoot.removeEventListener("click", this._handleClick);
@@ -683,58 +570,49 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     this.shadowRoot.removeEventListener("dragend", this._handleDragEnd);
     this.shadowRoot.removeEventListener("focusout", this._handleFocusOut);
   }
-
   setConfig(config) {
     const channels = Array.isArray(config?.channels) ? config.channels : [];
     this._config = {
       ...AdvancePowerUsageCard.getStubConfig(),
       ...config,
       channels: channels.map((channel) => ({ ...channel })),
-      bar_color_stops: normalizeColorStops(config?.bar_color_stops),
+      bar_color_stops: normalizeColorStops(config?.bar_color_stops)
     };
-
-    this._channelOpenStates = this._config.channels.map((_, index) =>
-      this._channelOpenStates[index] ?? true,
+    this._channelOpenStates = this._config.channels.map(
+      (_, index) => this._channelOpenStates[index] ?? true
     );
-
     this._render();
   }
-
   _collectEntityIds() {
     if (!this._hass || !this._hass.states) return [];
     return Object.keys(this._hass.states).sort((a, b) => a.localeCompare(b));
   }
-
   _entityStateSignature() {
     const ids = this._collectEntityIds();
     const first = ids[0] || "";
     const last = ids[ids.length - 1] || "";
     return `${ids.length}:${first}:${last}`;
   }
-
   _isEditing() {
     const active = this.shadowRoot?.activeElement;
     if (!active) return false;
     return active instanceof HTMLInputElement || active instanceof HTMLSelectElement || active instanceof HTMLTextAreaElement;
   }
-
   _handleFocusOut() {
     if (!this._pendingEntityRefresh) return;
     if (this._isEditing()) return;
     this._pendingEntityRefresh = false;
     this._render();
   }
-
   _emitChanged() {
     this.dispatchEvent(
       new CustomEvent("config-changed", {
         detail: { config: this._config },
         bubbles: true,
-        composed: true,
-      }),
+        composed: true
+      })
     );
   }
-
   _numberOrDelete(target, key, value) {
     const parsed = toNumberOrNull(value);
     if (parsed == null) {
@@ -743,35 +621,27 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       target[key] = parsed;
     }
   }
-
   _entityInput(scope, field, value, index) {
-    const indexAttr = index == null ? "" : ` data-index=\"${index}\"`;
+    const indexAttr = index == null ? "" : ` data-index="${index}"`;
     return `
       <input type="text" data-scope="${scope}" data-field="${field}"${indexAttr} value="${htmlEscape(this._inputValue(value))}" />
     `;
   }
-
   _positionOptions(selectedValue) {
     const selected = Math.max(0, Math.min(100, Math.round((toNumberOrNull(selectedValue) || 0) / 10) * 10));
     const values = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-
-    return values
-      .map((value) => {
-        const selectedAttr = value === selected ? " selected" : "";
-        return `<option value="${value}"${selectedAttr}>${value}%</option>`;
-      })
-      .join("");
+    return values.map((value) => {
+      const selectedAttr = value === selected ? " selected" : "";
+      return `<option value="${value}"${selectedAttr}>${value}%</option>`;
+    }).join("");
   }
-
   _handleInput(event) {
     const target = event.target;
     if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) {
       return;
     }
-
     const field = target.dataset.field;
     if (!field) return;
-
     if (target.dataset.scope === "root") {
       if (target instanceof HTMLInputElement && target.type === "checkbox") {
         this._config[field] = target.checked;
@@ -785,17 +655,14 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           this._config[field] = trimmed;
         }
       }
-
       this._emitChanged();
       return;
     }
-
     if (target.dataset.scope === "channel") {
       const index = Number.parseInt(target.dataset.index || "-1", 10);
       if (!Number.isInteger(index) || index < 0 || index >= this._config.channels.length) {
         return;
       }
-
       const channel = this._config.channels[index];
       if (target instanceof HTMLInputElement && target.type === "number") {
         this._numberOrDelete(channel, field, target.value);
@@ -807,108 +674,84 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           channel[field] = trimmed;
         }
       }
-
       this._emitChanged();
       return;
     }
-
     if (target.dataset.scope === "stop") {
       const index = Number.parseInt(target.dataset.index || "-1", 10);
       if (!Number.isInteger(index) || index < 0 || index >= this._config.bar_color_stops.length) {
         return;
       }
-
       const stop = this._config.bar_color_stops[index];
       if (field === "position") {
         stop.position = Math.max(0, Math.min(100, Math.round((toNumberOrNull(target.value) || 0) / 10) * 10));
       }
-
       if (field === "color") {
         stop.color = target.value || stop.color;
       }
-
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
       this._render();
       this._emitChanged();
     }
   }
-
   _handleClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-
     const action = target.dataset.action;
     if (!action) return;
-
     if (action === "add-channel") {
       this._config.channels.push({
         name: `Channel ${this._config.channels.length + 1}`,
-        power_entity: "",
+        power_entity: ""
       });
       this._channelOpenStates.push(true);
       this._render();
       this._emitChanged();
       return;
     }
-
     if (action === "remove-channel") {
       const index = Number.parseInt(target.dataset.index || "-1", 10);
       if (!Number.isInteger(index) || index < 0 || index >= this._config.channels.length) {
         return;
       }
-
       this._config.channels.splice(index, 1);
       this._channelOpenStates.splice(index, 1);
       this._render();
       this._emitChanged();
       return;
     }
-
     if (action === "add-stop") {
       if (this._config.bar_color_stops.length >= 5) return;
-
       this._config.bar_color_stops.push({
         position: 100,
-        color: "#ffffff",
+        color: "#ffffff"
       });
-
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
       this._render();
       this._emitChanged();
       return;
     }
-
     if (action === "remove-stop") {
       const index = Number.parseInt(target.dataset.index || "-1", 10);
-      if (
-        !Number.isInteger(index) ||
-        index < 0 ||
-        index >= this._config.bar_color_stops.length ||
-        this._config.bar_color_stops.length <= 2
-      ) {
+      if (!Number.isInteger(index) || index < 0 || index >= this._config.bar_color_stops.length || this._config.bar_color_stops.length <= 2) {
         return;
       }
-
       this._config.bar_color_stops.splice(index, 1);
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
       this._render();
       this._emitChanged();
     }
   }
-
   _handleToggle(event) {
     const target = event.target;
     if (!(target instanceof HTMLDetailsElement)) return;
-
-    // Dragging should not change fold state; restore previous state immediately.
     if (this._draggingChannelIndex >= 0 || this._dragJustFinished) {
-      const scope = target.dataset.scope;
-      if (scope === "stops") {
+      const scope2 = target.dataset.scope;
+      if (scope2 === "stops") {
         target.open = this._stopsOpen;
         return;
       }
-
-      if (scope === "channel") {
+      if (scope2 === "channel") {
         const index = Number.parseInt(target.dataset.index || "-1", 10);
         if (Number.isInteger(index) && index >= 0) {
           target.open = this._channelOpenStates[index] !== false;
@@ -916,13 +759,11 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         return;
       }
     }
-
     const scope = target.dataset.scope;
     if (scope === "stops") {
       this._stopsOpen = target.open;
       return;
     }
-
     if (scope === "channel") {
       const index = Number.parseInt(target.dataset.index || "-1", 10);
       if (Number.isInteger(index) && index >= 0) {
@@ -930,15 +771,12 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       }
     }
   }
-
   _handleDragStart(event) {
     const handle = event.target instanceof HTMLElement ? event.target.closest("[data-drag-handle]") : null;
     const row = handle instanceof HTMLElement ? handle.closest("[data-draggable-channel]") : null;
     if (!(row instanceof HTMLElement)) return;
-
     const index = Number.parseInt(row.dataset.index || "-1", 10);
     if (!Number.isInteger(index) || index < 0) return;
-
     this._draggingChannelIndex = index;
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
@@ -946,7 +784,6 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     }
     row.classList.add("dragging");
   }
-
   _handleDragOver(event) {
     const row = event.target instanceof HTMLElement ? event.target.closest("[data-draggable-channel]") : null;
     if (!(row instanceof HTMLElement)) return;
@@ -955,32 +792,24 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = "move";
     }
-
     const rect = row.getBoundingClientRect();
     const before = event.clientY < rect.top + rect.height / 2;
     const targetIndex = Number.parseInt(row.dataset.index || "-1", 10);
     if (!Number.isInteger(targetIndex) || targetIndex < 0) return;
-
     this._dropTargetIndex = targetIndex;
     this._dropPosition = before ? "before" : "after";
     this._applyDropIndicatorClasses();
   }
-
   _handleDrop(event) {
     const row = event.target instanceof HTMLElement ? event.target.closest("[data-draggable-channel]") : null;
     if (!(row instanceof HTMLElement)) return;
     if (this._draggingChannelIndex < 0) return;
-
     event.preventDefault();
     const from = this._draggingChannelIndex;
-    const baseIndex =
-      this._dropTargetIndex >= 0
-        ? this._dropTargetIndex
-        : Number.parseInt(row.dataset.index || "-1", 10);
+    const baseIndex = this._dropTargetIndex >= 0 ? this._dropTargetIndex : Number.parseInt(row.dataset.index || "-1", 10);
     if (!Number.isInteger(baseIndex) || baseIndex < 0 || baseIndex >= this._config.channels.length) {
       return;
     }
-
     let to = this._dropPosition === "before" ? baseIndex : baseIndex + 1;
     if (to > from) {
       to -= 1;
@@ -991,17 +820,13 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       this._clearDropIndicators();
       return;
     }
-
     const [movedChannel] = this._config.channels.splice(from, 1);
     this._config.channels.splice(to, 0, movedChannel);
-
     const [movedOpen] = this._channelOpenStates.splice(from, 1);
     this._channelOpenStates.splice(to, 0, movedOpen);
-
     this._render();
     this._emitChanged();
   }
-
   _handleDragEnd() {
     this._dragJustFinished = true;
     this._draggingChannelIndex = -1;
@@ -1010,7 +835,6 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       this._dragJustFinished = false;
     }, 0);
   }
-
   _clearDropIndicators() {
     this._dropTargetIndex = -1;
     this._dropPosition = "after";
@@ -1021,28 +845,22 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       node.classList.remove("drop-after");
     });
   }
-
   _applyDropIndicatorClasses() {
     const rows = this.shadowRoot.querySelectorAll("[data-draggable-channel]");
     rows.forEach((rowNode) => {
       if (!(rowNode instanceof HTMLElement)) return;
-
       rowNode.classList.remove("drop-before");
       rowNode.classList.remove("drop-after");
-
       const rowIndex = Number.parseInt(rowNode.dataset.index || "-1", 10);
       if (rowIndex !== this._dropTargetIndex) {
         return;
       }
-
       rowNode.classList.add(this._dropPosition === "before" ? "drop-before" : "drop-after");
     });
   }
-
   _inputValue(value) {
     return value == null ? "" : String(value);
   }
-
   _channelTitle(channel, index) {
     const named = this._inputValue(channel?.name).trim();
     if (named) return named;
@@ -1050,12 +868,10 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     if (entity) return entity;
     return `Channel ${index + 1}`;
   }
-
   _render() {
     const config = this._config;
-    const stopRows = config.bar_color_stops
-      .map(
-        (stop, index) => `
+    const stopRows = config.bar_color_stops.map(
+      (stop, index) => `
           <div class="stop-row">
             <label>Position
               <select data-scope="stop" data-index="${index}" data-field="position">
@@ -1067,16 +883,13 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
             </label>
             <button type="button" data-action="remove-stop" data-index="${index}" ${config.bar_color_stops.length <= 2 ? "disabled" : ""}>Remove</button>
           </div>
-        `,
-      )
-      .join("");
-
-    const channelRows = config.channels
-      .map(
-        (channel, index) => {
-          const title = this._channelTitle(channel, index);
-          const openAttr = this._channelOpenStates[index] === false ? "" : "open";
-          return `
+        `
+    ).join("");
+    const channelRows = config.channels.map(
+      (channel, index) => {
+        const title = this._channelTitle(channel, index);
+        const openAttr = this._channelOpenStates[index] === false ? "" : "open";
+        return `
             <details class="channel-row" data-scope="channel" data-index="${index}" data-draggable-channel ${openAttr}>
               <summary class="row-head">
                 <span class="channel-title">${htmlEscape(title)}</span>
@@ -1106,13 +919,10 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
               </div>
             </details>
           `;
-        },
-      )
-      .join("");
-
+      }
+    ).join("");
     const gradientPreview = gradientFromStops(config.bar_color_stops);
     const stopsOpenAttr = this._stopsOpen ? "open" : "";
-
     this.shadowRoot.innerHTML = `
       <div class="editor">
         <div class="grid">
@@ -1238,7 +1048,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         }
 
         summary::before {
-          content: "▸";
+          content: "\u25B8";
           position: absolute;
           left: 0;
           top: 50%;
@@ -1376,21 +1186,17 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       </style>
     `;
   }
-}
-
+};
 if (!customElements.get(CARD_TAG)) {
   customElements.define(CARD_TAG, AdvancePowerUsageCard);
 }
-
 if (!customElements.get(EDITOR_TAG)) {
   customElements.define(EDITOR_TAG, AdvancePowerUsageCardEditor);
 }
-
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: CARD_TAG,
   name: "Advance Power Usage Card",
-  description:
-    "Power and cost bars with responsive scaling, history daily cost, visual editor dropdowns, and configurable bar colors.",
-  preview: true,
+  description: "Power and cost bars with responsive scaling, history daily cost, visual editor dropdowns, and configurable bar colors.",
+  preview: true
 });
