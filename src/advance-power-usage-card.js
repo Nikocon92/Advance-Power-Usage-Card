@@ -20,10 +20,12 @@ const DEFAULTS = {
   auto_calculate_daily_cost: true,
   history_update_interval_sec: 300,
   bar_color_stops: DEFAULT_COLOR_STOPS,
+  bar_style: "arrow",
 };
 const POWER_ENTITY_UNITS = new Set(["w", "kw", "mw", "gw"]);
 const CURRENCY_CODES = ["usd", "eur", "gbp", "aud", "cad", "nzd", "sek", "nok", "dkk", "chf"];
 const CURRENCY_SYMBOL_PATTERN = /[€£$¥₩₹]/;
+const BAR_UNFILLED_COLOR = "rgba(26,54,85,0.35)";
 
 function toNumberOrNull(value) {
   const parsed = Number.parseFloat(value);
@@ -88,6 +90,45 @@ function gradientFromStops(stops) {
   const safeStops = normalizeColorStops(stops);
   const parts = safeStops.map((stop) => `${stop.color} ${stop.position}%`);
   return `linear-gradient(90deg, ${parts.join(", ")})`;
+}
+
+function hexToRgb(hex) {
+  const clean = hex.replace(/^#/, "");
+  const full = clean.length === 3
+    ? clean.split("").map((c) => c + c).join("")
+    : clean;
+  const result = /^([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(full);
+  return result
+    ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) }
+    : { r: 0, g: 0, b: 0 };
+}
+
+function lerpColor(colorA, colorB, t) {
+  const a = hexToRgb(colorA);
+  const b = hexToRgb(colorB);
+  const r = Math.round(a.r + (b.r - a.r) * t);
+  const g = Math.round(a.g + (b.g - a.g) * t);
+  const blue = Math.round(a.b + (b.b - a.b) * t);
+  return `rgb(${r},${g},${blue})`;
+}
+
+function colorAtRatio(stops, ratio) {
+  const safeStops = normalizeColorStops(stops);
+  const pct = ratio * 100;
+
+  if (pct <= safeStops[0].position) return safeStops[0].color;
+  if (pct >= safeStops[safeStops.length - 1].position) return safeStops[safeStops.length - 1].color;
+
+  for (let i = 0; i < safeStops.length - 1; i += 1) {
+    const a = safeStops[i];
+    const b = safeStops[i + 1];
+    if (pct >= a.position && pct <= b.position) {
+      const t = (b.position === a.position) ? 0 : (pct - a.position) / (b.position - a.position);
+      return lerpColor(a.color, b.color, t);
+    }
+  }
+
+  return safeStops[safeStops.length - 1].color;
 }
 
 class AdvancePowerUsageCard extends HTMLElement {
@@ -412,20 +453,27 @@ class AdvancePowerUsageCard extends HTMLElement {
     const decimals = this._config.decimal_places;
     const currency = this._config.currency_symbol;
     const gradient = gradientFromStops(this._config.bar_color_stops);
+    const barStyle = this._config.bar_style || "arrow";
+    const stops = this._config.bar_color_stops;
 
     const rowHtml = rows
       .map(
-        (row) => `
+        (row) => {
+          const fillPct = (row.ratio * 100).toFixed(2);
+          const barInnerHtml = barStyle === "scale"
+            ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, row.ratio)} ${fillPct}%, ${BAR_UNFILLED_COLOR} ${fillPct}%);"></div>`
+            : `<div class="bar"></div><div class="arrow" style="left: calc(${fillPct}% - var(--arrow-half))"></div>`;
+          return `
           <div class="row">
             <div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>
             <div class="bar-wrap">
-              <div class="bar"></div>
-              <div class="arrow" style="left: calc(${(row.ratio * 100).toFixed(2)}% - var(--arrow-half))"></div>
+              ${barInnerHtml}
             </div>
             <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
             <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
           </div>
-        `,
+        `;
+        },
       )
       .join("");
 
@@ -440,8 +488,10 @@ class AdvancePowerUsageCard extends HTMLElement {
 
           <div class="right-panel">
             <div class="summary-bar-wrap">
-              <div class="bar"></div>
-              <div class="arrow" style="left: calc(${(totalRatio * 100).toFixed(2)}% - var(--arrow-half))"></div>
+              ${barStyle === "scale"
+                ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, totalRatio)} ${(totalRatio * 100).toFixed(2)}%, ${BAR_UNFILLED_COLOR} ${(totalRatio * 100).toFixed(2)}%);"></div>`
+                : `<div class="bar"></div><div class="arrow" style="left: calc(${(totalRatio * 100).toFixed(2)}% - var(--arrow-half))"></div>`
+              }
             </div>
             <div class="rate">${this._formatNumber(rateRaw, 2)} ${this._config.rate_unit_label}</div>
           </div>
@@ -1286,6 +1336,12 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
           </label>
           <label>History Refresh Seconds
             <input type="number" step="1" min="30" data-scope="root" data-field="history_update_interval_sec" value="${htmlEscape(this._inputValue(config.history_update_interval_sec))}" />
+          </label>
+          <label>Bar Style
+            <select data-scope="root" data-field="bar_style">
+              <option value="arrow" ${config.bar_style !== "scale" ? "selected" : ""}>Arrow (full gradient bar)</option>
+              <option value="scale" ${config.bar_style === "scale" ? "selected" : ""}>Scale (percentage fill)</option>
+            </select>
           </label>
         </div>
 
