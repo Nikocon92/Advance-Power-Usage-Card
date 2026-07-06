@@ -464,7 +464,7 @@ class AdvancePowerUsageCard extends HTMLElement {
         (row) => {
           const fillPct = (row.ratio * 100).toFixed(2);
           const overlayHtml = showRawPowerOverlay
-            ? `<div class="power-overlay">${this._formatNumber(row.power, 0)}${htmlEscape(this._config.power_unit)}</div>`
+            ? `<div class="power-overlay"><span class="power-overlay-label">${this._formatNumber(row.power, 0)}${htmlEscape(this._config.power_unit)}</span></div>`
             : "";
           const barInnerHtml = barStyle === "scale"
             ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, row.ratio)} ${fillPct}%, ${BAR_UNFILLED_COLOR} ${fillPct}%);"></div>`
@@ -650,9 +650,18 @@ class AdvancePowerUsageCard extends HTMLElement {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
           pointer-events: none;
-          z-index: 1;
+        }
+
+        .power-overlay-label {
+          display: inline-block;
+          max-width: 100%;
+          padding: 0.15em 0.45em;
+          border-radius: calc(999px * var(--apuc-scale));
+          background: rgba(0, 0, 0, 0.45);
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         @media (max-width: 820px) {
