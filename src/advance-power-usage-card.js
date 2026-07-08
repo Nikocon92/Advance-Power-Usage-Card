@@ -21,7 +21,11 @@ const DEFAULTS = {
   history_update_interval_sec: 300,
   bar_color_stops: DEFAULT_COLOR_STOPS,
   bar_style: "arrow",
+<<<<<<< HEAD
   show_raw_power_overlay: false,
+=======
+  show_other: false,
+>>>>>>> origin/main
 };
 const POWER_ENTITY_UNITS = new Set(["w", "kw", "mw", "gw"]);
 const CURRENCY_CODES = ["usd", "eur", "gbp", "aud", "cad", "nzd", "sek", "nok", "dkk", "chf"];
@@ -185,7 +189,8 @@ class AdvancePowerUsageCard extends HTMLElement {
 
   getCardSize() {
     const channelCount = this._config?.channels?.length ?? 0;
-    return Math.max(4, channelCount + 3);
+    const otherCount = this._config?.show_other ? 1 : 0;
+    return Math.max(4, channelCount + otherCount + 3);
   }
 
   static getConfigElement() {
@@ -459,6 +464,7 @@ class AdvancePowerUsageCard extends HTMLElement {
     const stops = this._config.bar_color_stops;
     const showRawPowerOverlay = this._config.show_raw_power_overlay === true;
 
+<<<<<<< HEAD
     const rowHtml = rows
       .map(
         (row) => {
@@ -478,11 +484,46 @@ class AdvancePowerUsageCard extends HTMLElement {
             </div>
             <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
             <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
+=======
+    const buildRowHtml = (row) => {
+      const fillPct = (row.ratio * 100).toFixed(2);
+      const barInnerHtml = barStyle === "scale"
+        ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, row.ratio)} ${fillPct}%, ${BAR_UNFILLED_COLOR} ${fillPct}%);"></div>`
+        : `<div class="bar"></div><div class="arrow" style="left: calc(${fillPct}% - var(--arrow-half))"></div>`;
+      return `
+        <div class="row">
+          <div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>
+          <div class="bar-wrap">
+            ${barInnerHtml}
+>>>>>>> origin/main
           </div>
-        `;
-        },
-      )
-      .join("");
+          <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
+          <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
+        </div>
+      `;
+    };
+
+    const rowHtml = rows.map(buildRowHtml).join("");
+
+    let otherRowHtml = "";
+    if (this._config.show_other) {
+      const channelPowerSum = (this._config.channels ?? []).reduce(
+        (sum, c) => sum + this._getStateNumber(c.power_entity, 0),
+        0,
+      );
+      const otherPower = Math.max(0, totalPower - channelPowerSum);
+      const otherMax = this._config.max_power;
+      const otherRatio = this._clamp01(otherMax > 0 ? otherPower / otherMax : 0);
+      const otherInstantCost = (otherPower / 1000) * ratePerKwh;
+      const channelCostSum = rows.reduce((sum, row) => sum + row.totalCost, 0);
+      const otherDailyCost = Math.max(0, (totalCost ?? 0) - channelCostSum);
+      otherRowHtml = buildRowHtml({
+        name: "Other",
+        ratio: otherRatio,
+        instantCost: otherInstantCost,
+        totalCost: otherDailyCost,
+      });
+    }
 
     this.shadowRoot.innerHTML = `
       <ha-card>
@@ -504,7 +545,7 @@ class AdvancePowerUsageCard extends HTMLElement {
           </div>
 
           <div class="channels">
-            ${rowHtml}
+            ${rowHtml}${otherRowHtml}
           </div>
         </div>
       </ha-card>
@@ -948,6 +989,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       }
 
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
+      this._syncFromDOM();
       this._render();
       this._emitChanged();
     }
@@ -986,6 +1028,9 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       } else {
         channel[field] = value;
       }
+      if (field === "power_entity") {
+        this._syncEntityPickers();
+      }
       this._emitChanged();
     }
   }
@@ -1001,10 +1046,20 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
       picker.includeDomains = ["sensor"];
       const value = this._entityValueForPicker(picker);
       picker.value = value;
-      const filter = this._entityFilterForField(picker.dataset.field || "");
-      picker.entityFilter = (entity) =>
-        this._entityMatchesFilter(entity, filter);
+      picker.entityFilter = (entity) => this._pickerEntityMatchesFilter(picker, entity);
     });
+  }
+
+  _selectedChannelPowerEntities(excludedIndex) {
+    const selected = new Set();
+    this._config.channels.forEach((channel, index) => {
+      if (index === excludedIndex) return;
+      const entityId = this._inputValue(channel?.power_entity).trim();
+      if (entityId !== "") {
+        selected.add(entityId);
+      }
+    });
+    return selected;
   }
 
   _entityValueForPicker(picker) {
@@ -1024,6 +1079,25 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     }
 
     return "";
+  }
+
+  _pickerEntityMatchesFilter(picker, entityOrId) {
+    const field = picker.dataset.field || "";
+    const filter = this._entityFilterForField(field);
+    if (!this._entityMatchesFilter(entityOrId, filter)) {
+      return false;
+    }
+
+    if (picker.dataset.scope !== "channel" || field !== "power_entity") {
+      return true;
+    }
+
+    const index = Number.parseInt(picker.dataset.index || "-1", 10);
+    const selected = this._selectedChannelPowerEntities(index);
+    const entityId = typeof entityOrId === "string" ? entityOrId : entityOrId?.entity_id;
+    const currentValue = this._entityValueForPicker(picker);
+
+    return entityId === currentValue || !selected.has(entityId);
   }
 
   _entityMatchesFilter(entityOrId, filter) {
@@ -1069,6 +1143,22 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     return true;
   }
 
+  _syncFromDOM() {
+    const stopsEl = this.shadowRoot?.querySelector("details[data-scope='stops']");
+    if (stopsEl instanceof HTMLDetailsElement) {
+      this._stopsOpen = stopsEl.open;
+    }
+
+    const channelEls = this.shadowRoot?.querySelectorAll("details[data-scope='channel']");
+    channelEls?.forEach((el) => {
+      if (!(el instanceof HTMLDetailsElement)) return;
+      const index = Number.parseInt(el.dataset.index || "-1", 10);
+      if (Number.isInteger(index) && index >= 0) {
+        this._channelOpenStates[index] = el.open;
+      }
+    });
+  }
+
   _handleClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
@@ -1077,6 +1167,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     if (!action) return;
 
     if (action === "add-channel") {
+      this._syncFromDOM();
       this._config.channels.push({
         name: `Channel ${this._config.channels.length + 1}`,
         power_entity: "",
@@ -1093,6 +1184,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         return;
       }
 
+      this._syncFromDOM();
       this._config.channels.splice(index, 1);
       this._channelOpenStates.splice(index, 1);
       this._render();
@@ -1103,6 +1195,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
     if (action === "add-stop") {
       if (this._config.bar_color_stops.length >= 5) return;
 
+      this._syncFromDOM();
       this._config.bar_color_stops.push({
         position: 100,
         color: "#ffffff",
@@ -1125,6 +1218,7 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         return;
       }
 
+      this._syncFromDOM();
       this._config.bar_color_stops.splice(index, 1);
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
       this._render();
@@ -1401,8 +1495,13 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         </label>
 
         <label class="checkbox">
+<<<<<<< HEAD
           <input type="checkbox" data-scope="root" data-field="show_raw_power_overlay" ${config.show_raw_power_overlay ? "checked" : ""} />
           Show raw power text on channel bars
+=======
+          <input type="checkbox" data-scope="root" data-field="show_other" ${config.show_other ? "checked" : ""} />
+          Show untracked usage as "Other" row (total minus channel sum)
+>>>>>>> origin/main
         </label>
 
         <details data-scope="stops" ${stopsOpenAttr}>

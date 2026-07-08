@@ -20,7 +20,11 @@ var DEFAULTS = {
   history_update_interval_sec: 300,
   bar_color_stops: DEFAULT_COLOR_STOPS,
   bar_style: "arrow",
+<<<<<<< HEAD
   show_raw_power_overlay: false
+=======
+  show_other: false
+>>>>>>> origin/main
 };
 var POWER_ENTITY_UNITS = /* @__PURE__ */ new Set(["w", "kw", "mw", "gw"]);
 var CURRENCY_CODES = ["usd", "eur", "gbp", "aud", "cad", "nzd", "sek", "nok", "dkk", "chf"];
@@ -146,7 +150,8 @@ var AdvancePowerUsageCard = class extends HTMLElement {
   }
   getCardSize() {
     const channelCount = this._config?.channels?.length ?? 0;
-    return Math.max(4, channelCount + 3);
+    const otherCount = this._config?.show_other ? 1 : 0;
+    return Math.max(4, channelCount + otherCount + 3);
   }
   static getConfigElement() {
     return document.createElement(EDITOR_TAG);
@@ -347,6 +352,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     const gradient = gradientFromStops(this._config.bar_color_stops);
     const barStyle = this._config.bar_style || "arrow";
     const stops = this._config.bar_color_stops;
+<<<<<<< HEAD
     const showRawPowerOverlay = this._config.show_raw_power_overlay === true;
     const rowHtml = rows.map(
       (row) => {
@@ -362,10 +368,42 @@ var AdvancePowerUsageCard = class extends HTMLElement {
             </div>
             <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
             <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
+=======
+    const buildRowHtml = (row) => {
+      const fillPct = (row.ratio * 100).toFixed(2);
+      const barInnerHtml = barStyle === "scale" ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, row.ratio)} ${fillPct}%, ${BAR_UNFILLED_COLOR} ${fillPct}%);"></div>` : `<div class="bar"></div><div class="arrow" style="left: calc(${fillPct}% - var(--arrow-half))"></div>`;
+      return `
+        <div class="row">
+          <div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>
+          <div class="bar-wrap">
+            ${barInnerHtml}
+>>>>>>> origin/main
           </div>
-        `;
-      }
-    ).join("");
+          <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
+          <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
+        </div>
+      `;
+    };
+    const rowHtml = rows.map(buildRowHtml).join("");
+    let otherRowHtml = "";
+    if (this._config.show_other) {
+      const channelPowerSum = (this._config.channels ?? []).reduce(
+        (sum, c) => sum + this._getStateNumber(c.power_entity, 0),
+        0
+      );
+      const otherPower = Math.max(0, totalPower - channelPowerSum);
+      const otherMax = this._config.max_power;
+      const otherRatio = this._clamp01(otherMax > 0 ? otherPower / otherMax : 0);
+      const otherInstantCost = otherPower / 1e3 * ratePerKwh;
+      const channelCostSum = rows.reduce((sum, row) => sum + row.totalCost, 0);
+      const otherDailyCost = Math.max(0, (totalCost ?? 0) - channelCostSum);
+      otherRowHtml = buildRowHtml({
+        name: "Other",
+        ratio: otherRatio,
+        instantCost: otherInstantCost,
+        totalCost: otherDailyCost
+      });
+    }
     this.shadowRoot.innerHTML = `
       <ha-card>
         <div class="wrap">
@@ -383,7 +421,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
           </div>
 
           <div class="channels">
-            ${rowHtml}
+            ${rowHtml}${otherRowHtml}
           </div>
         </div>
       </ha-card>
@@ -791,6 +829,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
         stop.color = target.value || stop.color;
       }
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
+      this._syncFromDOM();
       this._render();
       this._emitChanged();
     }
@@ -823,6 +862,9 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       } else {
         channel[field] = value;
       }
+      if (field === "power_entity") {
+        this._syncEntityPickers();
+      }
       this._emitChanged();
     }
   }
@@ -836,9 +878,19 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       picker.includeDomains = ["sensor"];
       const value = this._entityValueForPicker(picker);
       picker.value = value;
-      const filter = this._entityFilterForField(picker.dataset.field || "");
-      picker.entityFilter = (entity) => this._entityMatchesFilter(entity, filter);
+      picker.entityFilter = (entity) => this._pickerEntityMatchesFilter(picker, entity);
     });
+  }
+  _selectedChannelPowerEntities(excludedIndex) {
+    const selected = /* @__PURE__ */ new Set();
+    this._config.channels.forEach((channel, index) => {
+      if (index === excludedIndex) return;
+      const entityId = this._inputValue(channel?.power_entity).trim();
+      if (entityId !== "") {
+        selected.add(entityId);
+      }
+    });
+    return selected;
   }
   _entityValueForPicker(picker) {
     const field = picker.dataset.field;
@@ -854,6 +906,21 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       return this._inputValue(this._config.channels[index]?.[field]).trim();
     }
     return "";
+  }
+  _pickerEntityMatchesFilter(picker, entityOrId) {
+    const field = picker.dataset.field || "";
+    const filter = this._entityFilterForField(field);
+    if (!this._entityMatchesFilter(entityOrId, filter)) {
+      return false;
+    }
+    if (picker.dataset.scope !== "channel" || field !== "power_entity") {
+      return true;
+    }
+    const index = Number.parseInt(picker.dataset.index || "-1", 10);
+    const selected = this._selectedChannelPowerEntities(index);
+    const entityId = typeof entityOrId === "string" ? entityOrId : entityOrId?.entity_id;
+    const currentValue = this._entityValueForPicker(picker);
+    return entityId === currentValue || !selected.has(entityId);
   }
   _entityMatchesFilter(entityOrId, filter) {
     if (filter === "any") return true;
@@ -879,12 +946,27 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
     }
     return true;
   }
+  _syncFromDOM() {
+    const stopsEl = this.shadowRoot?.querySelector("details[data-scope='stops']");
+    if (stopsEl instanceof HTMLDetailsElement) {
+      this._stopsOpen = stopsEl.open;
+    }
+    const channelEls = this.shadowRoot?.querySelectorAll("details[data-scope='channel']");
+    channelEls?.forEach((el) => {
+      if (!(el instanceof HTMLDetailsElement)) return;
+      const index = Number.parseInt(el.dataset.index || "-1", 10);
+      if (Number.isInteger(index) && index >= 0) {
+        this._channelOpenStates[index] = el.open;
+      }
+    });
+  }
   _handleClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const action = target.dataset.action;
     if (!action) return;
     if (action === "add-channel") {
+      this._syncFromDOM();
       this._config.channels.push({
         name: `Channel ${this._config.channels.length + 1}`,
         power_entity: ""
@@ -899,6 +981,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       if (!Number.isInteger(index) || index < 0 || index >= this._config.channels.length) {
         return;
       }
+      this._syncFromDOM();
       this._config.channels.splice(index, 1);
       this._channelOpenStates.splice(index, 1);
       this._render();
@@ -907,6 +990,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
     }
     if (action === "add-stop") {
       if (this._config.bar_color_stops.length >= 5) return;
+      this._syncFromDOM();
       this._config.bar_color_stops.push({
         position: 100,
         color: "#ffffff"
@@ -921,6 +1005,7 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       if (!Number.isInteger(index) || index < 0 || index >= this._config.bar_color_stops.length || this._config.bar_color_stops.length <= 2) {
         return;
       }
+      this._syncFromDOM();
       this._config.bar_color_stops.splice(index, 1);
       this._config.bar_color_stops = normalizeColorStops(this._config.bar_color_stops);
       this._render();
@@ -1160,8 +1245,13 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
         </label>
 
         <label class="checkbox">
+<<<<<<< HEAD
           <input type="checkbox" data-scope="root" data-field="show_raw_power_overlay" ${config.show_raw_power_overlay ? "checked" : ""} />
           Show raw power text on channel bars
+=======
+          <input type="checkbox" data-scope="root" data-field="show_other" ${config.show_other ? "checked" : ""} />
+          Show untracked usage as "Other" row (total minus channel sum)
+>>>>>>> origin/main
         </label>
 
         <details data-scope="stops" ${stopsOpenAttr}>
