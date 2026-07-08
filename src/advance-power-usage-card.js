@@ -21,11 +21,8 @@ const DEFAULTS = {
   history_update_interval_sec: 300,
   bar_color_stops: DEFAULT_COLOR_STOPS,
   bar_style: "arrow",
-<<<<<<< HEAD
   show_raw_power_overlay: false,
-=======
   show_other: false,
->>>>>>> origin/main
 };
 const POWER_ENTITY_UNITS = new Set(["w", "kw", "mw", "gw"]);
 const CURRENCY_CODES = ["usd", "eur", "gbp", "aud", "cad", "nzd", "sek", "nok", "dkk", "chf"];
@@ -464,29 +461,11 @@ class AdvancePowerUsageCard extends HTMLElement {
     const stops = this._config.bar_color_stops;
     const showRawPowerOverlay = this._config.show_raw_power_overlay === true;
 
-<<<<<<< HEAD
-    const rowHtml = rows
-      .map(
-        (row) => {
-          const fillPct = (row.ratio * 100).toFixed(2);
-          const overlayHtml = showRawPowerOverlay
-            ? `<div class="power-overlay"><span class="power-overlay-label">${this._formatNumber(row.power, 0)}${htmlEscape(this._config.power_unit)}</span></div>`
-            : "";
-          const barInnerHtml = barStyle === "scale"
-            ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, row.ratio)} ${fillPct}%, ${BAR_UNFILLED_COLOR} ${fillPct}%);"></div>`
-            : `<div class="bar"></div><div class="arrow" style="left: calc(${fillPct}% - var(--arrow-half))"></div>`;
-          return `
-          <div class="row">
-            <div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>
-            <div class="bar-wrap">
-              ${barInnerHtml}
-              ${overlayHtml}
-            </div>
-            <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
-            <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
-=======
     const buildRowHtml = (row) => {
       const fillPct = (row.ratio * 100).toFixed(2);
+      const overlayHtml = showRawPowerOverlay
+        ? `<div class="power-overlay"><span class="power-overlay-label">${this._formatNumber(row.power, 0)}${htmlEscape(this._config.power_unit)}</span></div>`
+        : "";
       const barInnerHtml = barStyle === "scale"
         ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, row.ratio)} ${fillPct}%, ${BAR_UNFILLED_COLOR} ${fillPct}%);"></div>`
         : `<div class="bar"></div><div class="arrow" style="left: calc(${fillPct}% - var(--arrow-half))"></div>`;
@@ -495,7 +474,7 @@ class AdvancePowerUsageCard extends HTMLElement {
           <div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>
           <div class="bar-wrap">
             ${barInnerHtml}
->>>>>>> origin/main
+            ${overlayHtml}
           </div>
           <div class="cost-hour">${currency}${this._formatNumber(row.instantCost, decimals)}/hr</div>
           <div class="cost-total">${currency}${this._formatNumber(row.totalCost, decimals)}</div>
@@ -1495,13 +1474,13 @@ class AdvancePowerUsageCardEditor extends HTMLElement {
         </label>
 
         <label class="checkbox">
-<<<<<<< HEAD
           <input type="checkbox" data-scope="root" data-field="show_raw_power_overlay" ${config.show_raw_power_overlay ? "checked" : ""} />
           Show raw power text on channel bars
-=======
+        </label>
+
+        <label class="checkbox">
           <input type="checkbox" data-scope="root" data-field="show_other" ${config.show_other ? "checked" : ""} />
           Show untracked usage as "Other" row (total minus channel sum)
->>>>>>> origin/main
         </label>
 
         <details data-scope="stops" ${stopsOpenAttr}>
