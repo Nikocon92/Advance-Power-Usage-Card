@@ -144,6 +144,8 @@ class AdvancePowerUsageCard extends HTMLElement {
     this._lastHistoryFetchMs = 0;
     this._historyDayKey = "";
     this._resizeObserver = null;
+    this._channelByPowerEntity = new Map();
+    this._childCycleCache = new Map();
   }
 
   connectedCallback() {
@@ -173,9 +175,21 @@ class AdvancePowerUsageCard extends HTMLElement {
       channels: config.channels,
       bar_color_stops: normalizeColorStops(config.bar_color_stops),
     };
+    this._rebuildChannelLookup();
 
     this._render();
     this._scheduleHistoryRefresh(true);
+  }
+
+  _rebuildChannelLookup() {
+    this._channelByPowerEntity = new Map();
+    this._childCycleCache = new Map();
+    this._config.channels.forEach((channel) => {
+      const entityId = this._channelPowerEntity(channel);
+      if (entityId !== "") {
+        this._channelByPowerEntity.set(entityId, channel);
+      }
+    });
   }
 
   set hass(hass) {
@@ -432,9 +446,7 @@ class AdvancePowerUsageCard extends HTMLElement {
   _findChannelByPowerEntity(entityId) {
     const key = String(entityId ?? "").trim();
     if (key === "") return null;
-    return this._config.channels.find(
-      (candidate) => this._channelPowerEntity(candidate) === key,
-    ) ?? null;
+    return this._channelByPowerEntity.get(key) ?? null;
   }
 
   _hasChildChannelCycle(parentPowerEntity, childPowerEntity) {
@@ -442,20 +454,28 @@ class AdvancePowerUsageCard extends HTMLElement {
     let current = String(childPowerEntity ?? "").trim();
     if (parent === "" || current === "") return false;
 
+    const cacheKey = `${parent}:${current}`;
+    if (this._childCycleCache.has(cacheKey)) {
+      return this._childCycleCache.get(cacheKey) === true;
+    }
+
     const visited = new Set([parent]);
     while (current !== "") {
       if (visited.has(current)) {
+        this._childCycleCache.set(cacheKey, true);
         return true;
       }
       visited.add(current);
 
       const channel = this._findChannelByPowerEntity(current);
       if (!channel) {
+        this._childCycleCache.set(cacheKey, false);
         return false;
       }
       current = String(channel.child_channel ?? "").trim();
     }
 
+    this._childCycleCache.set(cacheKey, false);
     return false;
   }
 
