@@ -91,6 +91,7 @@ Channel object keys:
 - `max_power` (optional)
 - `daily_cost_entity` (optional; if omitted and auto-calculate is enabled, daily cost is calculated from history)
 - `rate_entity` (optional, per-channel override)
+- `child_channel` (optional; set to another channel's `power_entity` to deduct that child channel from this channel's live power value)
 
 ## Visual Editor
 
