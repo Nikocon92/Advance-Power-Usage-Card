@@ -374,13 +374,14 @@ var AdvancePowerUsageCard = class extends HTMLElement {
         0
       );
       const otherPower = Math.max(0, totalPower - channelPowerSum);
-      const otherMax = this._config.max_power;
+      const otherMax = totalMax;
       const otherRatio = this._clamp01(otherMax > 0 ? otherPower / otherMax : 0);
       const otherInstantCost = otherPower / 1e3 * ratePerKwh;
       const channelCostSum = rows.reduce((sum, row) => sum + row.totalCost, 0);
       const otherDailyCost = Math.max(0, (totalCost ?? 0) - channelCostSum);
       otherRowHtml = buildRowHtml({
         name: "Other",
+        power: otherPower,
         ratio: otherRatio,
         instantCost: otherInstantCost,
         totalCost: otherDailyCost
@@ -574,20 +575,9 @@ var AdvancePowerUsageCard = class extends HTMLElement {
         }
 
         @media (max-width: 560px) {
-          .row {
-            grid-template-columns: minmax(0, 1fr);
-            gap: var(--space-1);
-            padding-bottom: calc(var(--space-2) + 2px);
-          }
-
-          .bar-wrap {
-            width: 100%;
-          }
-
           .cost-hour,
           .cost-total {
-            font-size: clamp(12px, calc(14px * var(--apuc-scale)), 14px);
-            text-align: left;
+            font-size: clamp(11px, calc(13px * var(--apuc-scale)), 13px);
           }
         }
       </style>
