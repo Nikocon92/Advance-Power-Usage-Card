@@ -326,19 +326,46 @@ var AdvancePowerUsageCard = class extends HTMLElement {
       totalCost
     };
   }
+  _channelPowerEntity(channel) {
+    return String(channel?.power_entity ?? "").trim();
+  }
+  _findChannelByPowerEntity(entityId) {
+    const key = String(entityId ?? "").trim();
+    if (key === "") return null;
+    return this._config.channels.find(
+      (candidate) => this._channelPowerEntity(candidate) === key
+    ) ?? null;
+  }
+  _hasChildChannelCycle(parentPowerEntity, childPowerEntity) {
+    const parent = String(parentPowerEntity ?? "").trim();
+    let current = String(childPowerEntity ?? "").trim();
+    if (parent === "" || current === "") return false;
+    const visited = /* @__PURE__ */ new Set([parent]);
+    while (current !== "") {
+      if (visited.has(current)) {
+        return true;
+      }
+      visited.add(current);
+      const channel = this._findChannelByPowerEntity(current);
+      if (!channel) {
+        return false;
+      }
+      current = String(channel.child_channel ?? "").trim();
+    }
+    return false;
+  }
   _getChannelNetPower(channel) {
     const basePower = this._getStateNumber(channel?.power_entity, 0);
     const childRef = String(channel?.child_channel ?? "").trim();
-    if (childRef === "") {
+    const parentRef = this._channelPowerEntity(channel);
+    if (childRef === "" || childRef === parentRef || this._hasChildChannelCycle(parentRef, childRef)) {
       return basePower;
     }
-    const childPowerEntity = this._config.channels.find(
-      (candidate) => String(candidate?.power_entity ?? "").trim() === childRef
-    )?.power_entity;
-    if (!childPowerEntity) {
+    const childChannel = this._findChannelByPowerEntity(childRef);
+    if (!childChannel?.power_entity) {
       return basePower;
     }
-    const childPower = this._getStateNumber(childPowerEntity, 0);
+    const childPower = this._getStateNumber(childChannel.power_entity, 0);
     return Math.max(0, basePower - childPower);
   }
   _render() {
@@ -755,15 +782,17 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
   _childChannelOptions(parentIndex, selectedValue) {
     const selected = this._inputValue(selectedValue).trim();
     const options = [`<option value="">None</option>`];
+    const availableEntityIds = /* @__PURE__ */ new Set();
     this._config.channels.forEach((channel, index) => {
       if (index === parentIndex) return;
       const entityId = this._inputValue(channel?.power_entity).trim();
       if (entityId === "") return;
+      availableEntityIds.add(entityId);
       const title = this._channelTitle(channel, index);
       const selectedAttr = entityId === selected ? " selected" : "";
       options.push(`<option value="${htmlEscape(entityId)}"${selectedAttr}>${htmlEscape(title)}</option>`);
     });
-    if (selected !== "" && !options.some((option) => option.includes(`value="${htmlEscape(selected)}"`))) {
+    if (selected !== "" && !availableEntityIds.has(selected)) {
       options.push(`<option value="${htmlEscape(selected)}" selected>${htmlEscape(selected)}</option>`);
     }
     return options.join("");
