@@ -306,7 +306,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     return wattHours / 1e3;
   }
   _buildRow(channel, mainRatePerKwh) {
-    const power = this._getStateNumber(channel.power_entity, 0);
+    const power = this._getChannelNetPower(channel);
     const rowMax = channel.max_power ?? this._config.max_power;
     const ratio = this._clamp01(rowMax > 0 ? power / rowMax : 0);
     const rowRateRaw = channel.rate_entity ? this._getStateNumber(channel.rate_entity, 0) : this._getStateNumber(this._config.rate_entity, 0);
@@ -326,15 +326,27 @@ var AdvancePowerUsageCard = class extends HTMLElement {
       totalCost
     };
   }
+  _getChannelNetPower(channel) {
+    const basePower = this._getStateNumber(channel?.power_entity, 0);
+    const childRef = String(channel?.child_channel ?? "").trim();
+    if (childRef === "") {
+      return basePower;
+    }
+    const childPowerEntity = this._config.channels.find(
+      (candidate) => String(candidate?.power_entity ?? "").trim() === childRef
+    )?.power_entity;
+    if (!childPowerEntity) {
+      return basePower;
+    }
+    const childPower = this._getStateNumber(childPowerEntity, 0);
+    return Math.max(0, basePower - childPower);
+  }
   _render() {
     if (!this._config || !this._hass || !this.shadowRoot) return;
     this._ensureResizeObserver();
     this._updateScale();
     this.style.setProperty("--arrow-color", this._isDarkMode() ? "#ffffff" : "#111111");
-    const totalPower = this._config.total_power_entity ? this._getStateNumber(this._config.total_power_entity, 0) : this._config.channels.reduce(
-      (sum, c) => sum + this._getStateNumber(c.power_entity, 0),
-      0
-    );
+    const totalPower = this._config.total_power_entity ? this._getStateNumber(this._config.total_power_entity, 0) : this._config.channels.reduce((sum, c) => sum + this._getChannelNetPower(c), 0);
     const rateRaw = this._getStateNumber(this._config.rate_entity, 0);
     const ratePerKwh = this._rateToCurrencyPerKwh(rateRaw);
     const totalInstantCost = totalPower / 1e3 * ratePerKwh;
@@ -370,7 +382,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     let otherRowHtml = "";
     if (this._config.show_other) {
       const channelPowerSum = (this._config.channels ?? []).reduce(
-        (sum, c) => sum + this._getStateNumber(c.power_entity, 0),
+        (sum, c) => sum + this._getChannelNetPower(c),
         0
       );
       const otherPower = Math.max(0, totalPower - channelPowerSum);
@@ -739,6 +751,22 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
       const selectedAttr = value === selected ? " selected" : "";
       return `<option value="${value}"${selectedAttr}>${value}%</option>`;
     }).join("");
+  }
+  _childChannelOptions(parentIndex, selectedValue) {
+    const selected = this._inputValue(selectedValue).trim();
+    const options = [`<option value="">None</option>`];
+    this._config.channels.forEach((channel, index) => {
+      if (index === parentIndex) return;
+      const entityId = this._inputValue(channel?.power_entity).trim();
+      if (entityId === "") return;
+      const title = this._channelTitle(channel, index);
+      const selectedAttr = entityId === selected ? " selected" : "";
+      options.push(`<option value="${htmlEscape(entityId)}"${selectedAttr}>${htmlEscape(title)}</option>`);
+    });
+    if (selected !== "" && !options.some((option) => option.includes(`value="${htmlEscape(selected)}"`))) {
+      options.push(`<option value="${htmlEscape(selected)}" selected>${htmlEscape(selected)}</option>`);
+    }
+    return options.join("");
   }
   _handleColorLive(event) {
     const target = event.target;
@@ -1157,6 +1185,11 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
                 </label>
                 <label>Rate Entity (optional)
                   ${this._entityInput("channel", "rate_entity", channel.rate_entity, index)}
+                </label>
+                <label>Child Channel
+                  <select data-scope="channel" data-index="${index}" data-field="child_channel">
+                    ${this._childChannelOptions(index, channel.child_channel)}
+                  </select>
                 </label>
               </div>
             </details>
