@@ -200,6 +200,18 @@ class AdvancePowerUsageCard extends HTMLElement {
         this._channelsByParentEntity.get(parentEntityId).push(channel);
       }
     });
+
+    this._channelsByParentEntity.forEach((channels, parentEntityId) => {
+      const validChildren = channels.filter((childChannel) => {
+        const childEntityId = this._channelPowerEntity(childChannel);
+        return childEntityId !== "" && !this._hasParentChannelCycle(childEntityId, parentEntityId);
+      });
+      if (validChildren.length === 0) {
+        this._channelsByParentEntity.delete(parentEntityId);
+        return;
+      }
+      this._channelsByParentEntity.set(parentEntityId, validChildren);
+    });
   }
 
   set hass(hass) {
@@ -502,18 +514,8 @@ class AdvancePowerUsageCard extends HTMLElement {
     }
 
     let childPowerTotal = 0;
-    const cycleByChildPowerEntity = new Map();
-    childChannels.forEach((candidate) => {
-      const candidatePowerEntity = this._channelPowerEntity(candidate);
-      if (candidatePowerEntity === "") return;
-      if (!cycleByChildPowerEntity.has(candidatePowerEntity)) {
-        cycleByChildPowerEntity.set(
-          candidatePowerEntity,
-          this._hasParentChannelCycle(candidatePowerEntity, parentRef),
-        );
-      }
-      if (cycleByChildPowerEntity.get(candidatePowerEntity)) return;
-      childPowerTotal += this._getStateNumber(candidate.power_entity, 0);
+    childChannels.forEach((childChannel) => {
+      childPowerTotal += this._getStateNumber(childChannel.power_entity, 0);
     });
 
     return Math.max(0, basePower - childPowerTotal);
