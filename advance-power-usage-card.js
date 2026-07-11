@@ -154,25 +154,27 @@ var AdvancePowerUsageCard = class extends HTMLElement {
       if (entityId !== "") {
         this._channelByPowerEntity.set(entityId, channel);
       }
+    });
+    this._config.channels.forEach((channel) => {
       const parentEntityId = String(channel?.parent_channel ?? "").trim();
-      if (parentEntityId !== "") {
+      if (parentEntityId !== "" && this._channelByPowerEntity.has(parentEntityId)) {
         if (!this._channelsByParentEntity.has(parentEntityId)) {
           this._channelsByParentEntity.set(parentEntityId, []);
         }
         this._channelsByParentEntity.get(parentEntityId).push(channel);
       }
     });
+    const filteredChannelsByParentEntity = /* @__PURE__ */ new Map();
     this._channelsByParentEntity.forEach((channels, parentEntityId) => {
       const validChildren = channels.filter((childChannel) => {
         const childEntityId = this._channelPowerEntity(childChannel);
         return childEntityId !== "" && !this._hasParentChannelCycle(childEntityId, parentEntityId);
       });
-      if (validChildren.length === 0) {
-        this._channelsByParentEntity.delete(parentEntityId);
-        return;
+      if (validChildren.length > 0) {
+        filteredChannelsByParentEntity.set(parentEntityId, validChildren);
       }
-      this._channelsByParentEntity.set(parentEntityId, validChildren);
     });
+    this._channelsByParentEntity = filteredChannelsByParentEntity;
   }
   set hass(hass) {
     this._hass = hass;
@@ -403,10 +405,10 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     if (childChannels.length === 0) {
       return basePower;
     }
-    let childPowerTotal = 0;
-    childChannels.forEach((childChannel) => {
-      childPowerTotal += this._getStateNumber(childChannel.power_entity, 0);
-    });
+    const childPowerTotal = childChannels.reduce(
+      (sum, childChannel) => sum + this._getStateNumber(childChannel.power_entity, 0),
+      0
+    );
     return Math.max(0, basePower - childPowerTotal);
   }
   _renderSankeyHtml(allRows, totalPower, totalRatio, stops) {

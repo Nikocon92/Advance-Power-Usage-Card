@@ -192,8 +192,11 @@ class AdvancePowerUsageCard extends HTMLElement {
       if (entityId !== "") {
         this._channelByPowerEntity.set(entityId, channel);
       }
+    });
+
+    this._config.channels.forEach((channel) => {
       const parentEntityId = String(channel?.parent_channel ?? "").trim();
-      if (parentEntityId !== "") {
+      if (parentEntityId !== "" && this._channelByPowerEntity.has(parentEntityId)) {
         if (!this._channelsByParentEntity.has(parentEntityId)) {
           this._channelsByParentEntity.set(parentEntityId, []);
         }
@@ -201,17 +204,17 @@ class AdvancePowerUsageCard extends HTMLElement {
       }
     });
 
+    const filteredChannelsByParentEntity = new Map();
     this._channelsByParentEntity.forEach((channels, parentEntityId) => {
       const validChildren = channels.filter((childChannel) => {
         const childEntityId = this._channelPowerEntity(childChannel);
         return childEntityId !== "" && !this._hasParentChannelCycle(childEntityId, parentEntityId);
       });
-      if (validChildren.length === 0) {
-        this._channelsByParentEntity.delete(parentEntityId);
-        return;
+      if (validChildren.length > 0) {
+        filteredChannelsByParentEntity.set(parentEntityId, validChildren);
       }
-      this._channelsByParentEntity.set(parentEntityId, validChildren);
     });
+    this._channelsByParentEntity = filteredChannelsByParentEntity;
   }
 
   set hass(hass) {
@@ -513,10 +516,10 @@ class AdvancePowerUsageCard extends HTMLElement {
       return basePower;
     }
 
-    let childPowerTotal = 0;
-    childChannels.forEach((childChannel) => {
-      childPowerTotal += this._getStateNumber(childChannel.power_entity, 0);
-    });
+    const childPowerTotal = childChannels.reduce(
+      (sum, childChannel) => sum + this._getStateNumber(childChannel.power_entity, 0),
+      0,
+    );
 
     return Math.max(0, basePower - childPowerTotal);
   }
