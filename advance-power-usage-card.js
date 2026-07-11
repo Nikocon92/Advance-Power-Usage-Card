@@ -21,7 +21,8 @@ var DEFAULTS = {
   bar_color_stops: DEFAULT_COLOR_STOPS,
   bar_style: "arrow",
   show_raw_power_overlay: false,
-  show_other: false
+  show_other: false,
+  show_sankey: false
 };
 var POWER_ENTITY_UNITS = /* @__PURE__ */ new Set(["w", "kw", "mw", "gw"]);
 var CURRENCY_CODES = ["usd", "eur", "gbp", "aud", "cad", "nzd", "sek", "nok", "dkk", "chf"];
@@ -386,6 +387,88 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     const childPower = this._getStateNumber(childChannel.power_entity, 0);
     return Math.max(0, basePower - childPower);
   }
+  _renderSankeyHtml(allRows, totalPower, totalRatio, stops) {
+    const activeRows = allRows.filter((r) => r.power > 0);
+    if (totalPower <= 0 || activeRows.length === 0) return "";
+    const powerUnit = htmlEscape(this._config.power_unit);
+    const VB_W = 600;
+    const NODE_W = 20;
+    const PAD_V = 28;
+    const PAD_L = 90;
+    const PAD_R = 175;
+    const GAP = 6;
+    const MIN_H = 4;
+    const numActive = activeRows.length;
+    const gapsTotal = Math.max(0, numActive - 1) * GAP;
+    const innerH = Math.max(numActive * (MIN_H + 2) + gapsTotal, Math.max(80, numActive * 32));
+    const svgH = innerH + PAD_V * 2;
+    const leftX = PAD_L;
+    const rightX = VB_W - PAD_R - NODE_W;
+    const midX = (leftX + NODE_W + rightX) / 2;
+    const totalForFrac = Math.max(totalPower, activeRows.reduce((s, r) => s + r.power, 0));
+    const withH = activeRows.map((row) => {
+      const frac = row.power / totalForFrac;
+      const desired = Math.max(MIN_H, frac * (innerH - gapsTotal));
+      return { ...row, frac, desired };
+    });
+    const desiredTotal = withH.reduce((s, r) => s + r.desired, 0);
+    const available = innerH - gapsTotal;
+    const scaleFactor = desiredTotal > 0 ? available / desiredTotal : 1;
+    const channelData = withH.map((r) => ({
+      ...r,
+      rightH: Math.max(MIN_H, r.desired * scaleFactor)
+    }));
+    const usedRight = channelData.reduce((s, c) => s + c.rightH, 0) + gapsTotal;
+    let ry = PAD_V + (innerH - usedRight) / 2;
+    channelData.forEach((c) => {
+      c.rightY = ry;
+      ry += c.rightH + GAP;
+    });
+    let ly = PAD_V;
+    channelData.forEach((c) => {
+      c.leftH = c.frac * innerH;
+      c.leftY = ly;
+      ly += c.leftH;
+    });
+    const leftNodeColor = colorAtRatio(stops, totalRatio);
+    const svgParts = [];
+    svgParts.push(
+      `<rect x="${leftX}" y="${PAD_V}" width="${NODE_W}" height="${innerH}" fill="${leftNodeColor}" rx="3"/>`
+    );
+    const leftMidY = PAD_V + innerH / 2;
+    svgParts.push(
+      `<text x="${leftX - 7}" y="${(leftMidY - 7).toFixed(1)}" text-anchor="end" dominant-baseline="middle" font-size="11" fill="currentColor" font-weight="600">Total</text>`
+    );
+    svgParts.push(
+      `<text x="${leftX - 7}" y="${(leftMidY + 7).toFixed(1)}" text-anchor="end" dominant-baseline="middle" font-size="11" fill="currentColor">${this._formatNumber(totalPower, 0)}${powerUnit}</text>`
+    );
+    channelData.forEach((c) => {
+      const color = colorAtRatio(stops, c.ratio);
+      const x1 = leftX + NODE_W;
+      const y1t = c.leftY;
+      const y1b = c.leftY + c.leftH;
+      const x2 = rightX;
+      const y2t = c.rightY;
+      const y2b = c.rightY + c.rightH;
+      svgParts.push(
+        `<path d="M${x1} ${y1t.toFixed(1)} C${midX} ${y1t.toFixed(1)},${midX} ${y2t.toFixed(1)},${x2} ${y2t.toFixed(1)} L${x2} ${y2b.toFixed(1)} C${midX} ${y2b.toFixed(1)},${midX} ${y1b.toFixed(1)},${x1} ${y1b.toFixed(1)}Z" fill="${color}" opacity="0.72"/>`
+      );
+      svgParts.push(
+        `<rect x="${rightX}" y="${c.rightY.toFixed(1)}" width="${NODE_W}" height="${c.rightH.toFixed(1)}" fill="${color}" rx="3"/>`
+      );
+      const midY = (c.rightY + c.rightH / 2).toFixed(1);
+      svgParts.push(
+        `<text x="${rightX + NODE_W + 8}" y="${midY}" dominant-baseline="middle" font-size="11" fill="currentColor">${htmlEscape(c.name)}: ${this._formatNumber(c.power, 0)}${powerUnit}</text>`
+      );
+    });
+    return `
+      <div class="sankey-wrap">
+        <svg viewBox="0 0 ${VB_W} ${svgH}" width="100%" style="overflow: visible; display: block;">
+          ${svgParts.join("\n          ")}
+        </svg>
+      </div>
+    `;
+  }
   _render() {
     if (!this._config || !this._hass || !this.shadowRoot) return;
     this._ensureResizeObserver();
@@ -425,6 +508,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     };
     const rowHtml = rows.map(buildRowHtml).join("");
     let otherRowHtml = "";
+    let otherRow = null;
     if (this._config.show_other) {
       const channelPowerSum = (this._config.channels ?? []).reduce(
         (sum, c) => sum + this._getChannelNetPower(c),
@@ -436,13 +520,19 @@ var AdvancePowerUsageCard = class extends HTMLElement {
       const otherInstantCost = otherPower / 1e3 * ratePerKwh;
       const channelCostSum = rows.reduce((sum, row) => sum + row.totalCost, 0);
       const otherDailyCost = Math.max(0, (totalCost ?? 0) - channelCostSum);
-      otherRowHtml = buildRowHtml({
+      otherRow = {
         name: "Other",
         power: otherPower,
         ratio: otherRatio,
         instantCost: otherInstantCost,
         totalCost: otherDailyCost
-      });
+      };
+      otherRowHtml = buildRowHtml(otherRow);
+    }
+    let sankeyHtml = "";
+    if (this._config.show_sankey) {
+      const sankeyRows = otherRow ? [...rows, otherRow] : [...rows];
+      sankeyHtml = this._renderSankeyHtml(sankeyRows, totalPower, totalRatio, stops);
     }
     this.shadowRoot.innerHTML = `
       <ha-card>
@@ -463,6 +553,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
           <div class="channels">
             ${rowHtml}${otherRowHtml}
           </div>
+          ${sankeyHtml}
         </div>
       </ha-card>
 
@@ -636,6 +727,16 @@ var AdvancePowerUsageCard = class extends HTMLElement {
           .cost-total {
             font-size: clamp(11px, calc(13px * var(--apuc-scale)), 13px);
           }
+        }
+
+        .sankey-wrap {
+          grid-column: 1 / -1;
+          margin-top: var(--space-3);
+          min-width: 0;
+        }
+
+        .sankey-wrap svg text {
+          font-family: inherit;
         }
       </style>
     `;
@@ -1304,6 +1405,11 @@ var AdvancePowerUsageCardEditor = class extends HTMLElement {
         <label class="checkbox">
           <input type="checkbox" data-scope="root" data-field="show_other" ${config.show_other ? "checked" : ""} />
           Show untracked usage as "Other" row (total minus channel sum)
+        </label>
+
+        <label class="checkbox">
+          <input type="checkbox" data-scope="root" data-field="show_sankey" ${config.show_sankey ? "checked" : ""} />
+          Show Sankey flow chart (power flow from total to each channel)
         </label>
 
         <details data-scope="stops" ${stopsOpenAttr}>

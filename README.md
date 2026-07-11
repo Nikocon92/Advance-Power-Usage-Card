@@ -37,6 +37,8 @@ total_cost_entity: sensor.house_cost_today
 decimal_places: 2
 auto_calculate_daily_cost: true
 show_raw_power_overlay: true
+show_other: false        # adds an "Other" row for untracked power
+show_sankey: true        # shows a Sankey flow chart below the channel list
 history_update_interval_sec: 300
 channels:
   - name: Washing Machine
@@ -83,6 +85,7 @@ bar_color_stops:
 | `history_update_interval_sec` | No | How often to refresh history-based daily costs (default `300`) |
 | `bar_color_stops` | No | Up to 5 global gradient stops for bars (`position` in 10% steps, `color` as CSS color) |
 | `show_other` | No | If `true`, shows an "Other" row at the bottom representing untracked power (total minus sum of channel power) |
+| `show_sankey` | No | If `true`, shows a Sankey flow chart at the bottom of the card, visualising power flow from the total to each channel. Band colours match the gradient colour bar. |
 
 Channel object keys:
 
