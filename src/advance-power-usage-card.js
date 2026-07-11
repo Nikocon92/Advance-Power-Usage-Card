@@ -146,6 +146,7 @@ class AdvancePowerUsageCard extends HTMLElement {
     this._historyDayKey = "";
     this._resizeObserver = null;
     this._channelByPowerEntity = new Map();
+    this._channelsByParentEntity = new Map();
     this._childCycleCache = new Map();
   }
 
@@ -184,11 +185,19 @@ class AdvancePowerUsageCard extends HTMLElement {
 
   _rebuildChannelLookup() {
     this._channelByPowerEntity = new Map();
+    this._channelsByParentEntity = new Map();
     this._childCycleCache = new Map();
     this._config.channels.forEach((channel) => {
       const entityId = this._channelPowerEntity(channel);
       if (entityId !== "") {
         this._channelByPowerEntity.set(entityId, channel);
+      }
+      const parentEntityId = String(channel?.parent_channel ?? "").trim();
+      if (parentEntityId !== "") {
+        if (!this._channelsByParentEntity.has(parentEntityId)) {
+          this._channelsByParentEntity.set(parentEntityId, []);
+        }
+        this._channelsByParentEntity.get(parentEntityId).push(channel);
       }
     });
   }
@@ -487,14 +496,16 @@ class AdvancePowerUsageCard extends HTMLElement {
       return basePower;
     }
 
+    const childChannels = this._channelsByParentEntity.get(parentRef) ?? [];
+    if (childChannels.length === 0) {
+      return basePower;
+    }
+
     let childPowerTotal = 0;
     const cycleByChildPowerEntity = new Map();
-    this._config.channels.forEach((candidate) => {
-      if (candidate === channel) return;
+    childChannels.forEach((candidate) => {
       const candidatePowerEntity = this._channelPowerEntity(candidate);
       if (candidatePowerEntity === "") return;
-      const candidateParent = String(candidate.parent_channel ?? "").trim();
-      if (candidateParent !== parentRef) return;
       if (!cycleByChildPowerEntity.has(candidatePowerEntity)) {
         cycleByChildPowerEntity.set(
           candidatePowerEntity,

@@ -115,6 +115,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     this._historyDayKey = "";
     this._resizeObserver = null;
     this._channelByPowerEntity = /* @__PURE__ */ new Map();
+    this._channelsByParentEntity = /* @__PURE__ */ new Map();
     this._childCycleCache = /* @__PURE__ */ new Map();
   }
   connectedCallback() {
@@ -146,11 +147,19 @@ var AdvancePowerUsageCard = class extends HTMLElement {
   }
   _rebuildChannelLookup() {
     this._channelByPowerEntity = /* @__PURE__ */ new Map();
+    this._channelsByParentEntity = /* @__PURE__ */ new Map();
     this._childCycleCache = /* @__PURE__ */ new Map();
     this._config.channels.forEach((channel) => {
       const entityId = this._channelPowerEntity(channel);
       if (entityId !== "") {
         this._channelByPowerEntity.set(entityId, channel);
+      }
+      const parentEntityId = String(channel?.parent_channel ?? "").trim();
+      if (parentEntityId !== "") {
+        if (!this._channelsByParentEntity.has(parentEntityId)) {
+          this._channelsByParentEntity.set(parentEntityId, []);
+        }
+        this._channelsByParentEntity.get(parentEntityId).push(channel);
       }
     });
   }
@@ -379,14 +388,15 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     if (parentRef === "") {
       return basePower;
     }
+    const childChannels = this._channelsByParentEntity.get(parentRef) ?? [];
+    if (childChannels.length === 0) {
+      return basePower;
+    }
     let childPowerTotal = 0;
     const cycleByChildPowerEntity = /* @__PURE__ */ new Map();
-    this._config.channels.forEach((candidate) => {
-      if (candidate === channel) return;
+    childChannels.forEach((candidate) => {
       const candidatePowerEntity = this._channelPowerEntity(candidate);
       if (candidatePowerEntity === "") return;
-      const candidateParent = String(candidate.parent_channel ?? "").trim();
-      if (candidateParent !== parentRef) return;
       if (!cycleByChildPowerEntity.has(candidatePowerEntity)) {
         cycleByChildPowerEntity.set(
           candidatePowerEntity,
