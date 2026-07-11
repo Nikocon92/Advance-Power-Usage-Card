@@ -506,8 +506,8 @@ class AdvancePowerUsageCard extends HTMLElement {
     const VB_W = 600;
     const NODE_W = 20;
     const PAD_V = 28;
-    const PAD_L = 90;
-    const PAD_R = 175;
+    const PAD_L = 72;
+    const PAD_R = 130;
     const GAP = 6;
     const MIN_H = 4;
 
@@ -590,7 +590,7 @@ class AdvancePowerUsageCard extends HTMLElement {
 
       const midY = (c.rightY + c.rightH / 2).toFixed(1);
       svgParts.push(
-        `<text x="${rightX + NODE_W + 8}" y="${midY}" dominant-baseline="middle" font-size="11" fill="currentColor">${htmlEscape(c.name)}: ${this._formatNumber(c.power, 0)}${powerUnit}</text>`,
+        `<text x="${VB_W - 4}" y="${midY}" text-anchor="end" dominant-baseline="middle" font-size="11" fill="currentColor">${htmlEscape(c.name)}: ${this._formatNumber(c.power, 0)}${powerUnit}</text>`,
       );
     });
 
