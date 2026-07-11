@@ -488,13 +488,20 @@ class AdvancePowerUsageCard extends HTMLElement {
     }
 
     let childPowerTotal = 0;
+    const cycleByChildPowerEntity = new Map();
     this._config.channels.forEach((candidate) => {
       if (candidate === channel) return;
-      const childRef = this._channelPowerEntity(candidate);
-      if (childRef === "") return;
+      const candidatePowerEntity = this._channelPowerEntity(candidate);
+      if (candidatePowerEntity === "") return;
       const candidateParent = String(candidate.parent_channel ?? "").trim();
       if (candidateParent !== parentRef) return;
-      if (this._hasParentChannelCycle(childRef, parentRef)) return;
+      if (!cycleByChildPowerEntity.has(candidatePowerEntity)) {
+        cycleByChildPowerEntity.set(
+          candidatePowerEntity,
+          this._hasParentChannelCycle(candidatePowerEntity, parentRef),
+        );
+      }
+      if (cycleByChildPowerEntity.get(candidatePowerEntity)) return;
       childPowerTotal += this._getStateNumber(candidate.power_entity, 0);
     });
 
