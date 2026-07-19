@@ -117,6 +117,8 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     this._channelByPowerEntity = /* @__PURE__ */ new Map();
     this._channelsByParentEntity = /* @__PURE__ */ new Map();
     this._childCycleCache = /* @__PURE__ */ new Map();
+    this._handleCardClick = this._handleCardClick.bind(this);
+    this.shadowRoot.addEventListener("click", this._handleCardClick);
   }
   connectedCallback() {
     this._ensureResizeObserver();
@@ -342,6 +344,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     return wattHours / 1e3;
   }
   _buildRow(channel, mainRatePerKwh) {
+    const powerEntity = this._channelPowerEntity(channel);
     const power = this._getChannelNetPower(channel);
     const rowMax = channel.max_power ?? this._config.max_power;
     const ratio = this._clamp01(rowMax > 0 ? power / rowMax : 0);
@@ -356,6 +359,7 @@ var AdvancePowerUsageCard = class extends HTMLElement {
     }
     return {
       name: channel.name || channel.power_entity || "Channel",
+      powerEntity,
       power,
       ratio,
       instantCost,
@@ -410,6 +414,24 @@ var AdvancePowerUsageCard = class extends HTMLElement {
       0
     );
     return Math.max(0, basePower - childPowerTotal);
+  }
+  _handleCardClick(event) {
+    const target = event.target?.closest?.("[data-history-entity]");
+    if (!target || !this.shadowRoot.contains(target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this._openEntityHistory(target.dataset.historyEntity);
+  }
+  _openEntityHistory(entityId) {
+    const entity = String(entityId ?? "").trim();
+    if (entity === "") return;
+    const path = `/history?entity_id=${encodeURIComponent(entity)}`;
+    window.history.pushState(null, "", path);
+    this.dispatchEvent(new CustomEvent("location-changed", {
+      bubbles: true,
+      composed: true,
+      detail: { replace: false }
+    }));
   }
   _renderSankeyHtml(allRows, totalPower, totalRatio, stops) {
     const activeRows = allRows.filter((r) => r.power > 0);
@@ -518,9 +540,10 @@ var AdvancePowerUsageCard = class extends HTMLElement {
       const fillPct = (row.ratio * 100).toFixed(2);
       const overlayHtml = showRawPowerOverlay ? `<div class="power-overlay"><span class="power-overlay-label">${this._formatNumber(row.power, 0)}${htmlEscape(this._config.power_unit)}</span></div>` : "";
       const barInnerHtml = barStyle === "scale" ? `<div class="bar bar-scale" style="background: linear-gradient(90deg, ${colorAtRatio(stops, row.ratio)} ${fillPct}%, ${BAR_UNFILLED_COLOR} ${fillPct}%);"></div>` : `<div class="bar"></div><div class="arrow" style="left: calc(${fillPct}% - var(--arrow-half))"></div>`;
+      const nameHtml = row.powerEntity ? `<button class="name name-link" type="button" data-history-entity="${htmlEscape(row.powerEntity)}" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</button>` : `<div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>`;
       return `
         <div class="row">
-          <div class="name" title="${htmlEscape(row.name)}">${htmlEscape(row.name)}</div>
+          ${nameHtml}
           <div class="bar-wrap">
             ${barInnerHtml}
             ${overlayHtml}
@@ -659,11 +682,27 @@ var AdvancePowerUsageCard = class extends HTMLElement {
         }
 
         .name {
+          appearance: none;
+          border: 0;
+          padding: 0;
+          background: transparent;
+          color: inherit;
+          text-align: left;
+          font: inherit;
           font-size: clamp(12px, calc(16px * var(--apuc-scale)), 16px);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
           min-width: 0;
+        }
+
+        .name-link {
+          cursor: pointer;
+        }
+
+        .name-link:hover,
+        .name-link:focus-visible {
+          text-decoration: underline;
         }
 
         .cost-hour,
